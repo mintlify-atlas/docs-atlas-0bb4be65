@@ -1,0 +1,157 @@
+---
+title: AI Agents Overview
+description: Overview of MetaVault's AI Agent system for automated portfolio management
+---
+
+MetaVault AI employs a multi-agent architecture to monitor, manage, and optimize DeFi portfolio strategies. The agent system consists of specialized sub-agents that work together to maintain vault health, manage risk, and assist users.
+
+## Architecture
+
+The agent system follows a hierarchical structure:
+
+```
+Root Agent
+├── Strategy Sentinel Agent
+├── Yield Simulator Agent
+└── Chat Agent (User Interface)
+```
+
+### Root Agent
+
+The root agent coordinates between specialized sub-agents:
+
+```typescript
+const getRootAgent = async () => {
+    const strategySentinalAgent = await getStrategySentinelAgent();
+    const yieldSimulatorAgent = await getYieldGeneratorAgent();
+    return AgentBuilder
+        .create("root_agent")
+        .withDescription("AI Agent that monitors and manages the Funds and Strategies of the Vault.")
+        .withInstruction(`
+            Use the sub-agent Strategy Sentinel Agent for getting vault, strategies, and users' stats, 
+            and perform deposit, withdraw, rebalance, harvest, auto_deleverage.
+            Use the sub-agent Yield Generator Agent for accruing or generating yeild to the Pool.
+        `)
+        .withSubAgents([strategySentinalAgent, yieldSimulatorAgent])
+        .build();
+}
+```
+
+**Source:** `packages/agents/defi-portfolio/src/agents/agent.ts:6-19`
+
+## Agent Types
+
+### Strategy Sentinel Agent
+
+Monitors and manages vault strategies, including:
+- Real-time monitoring of vault and strategy states
+- Risk assessment and liquidation prevention
+- Price-based decision making for leverage strategies
+- Automated rebalancing and harvesting
+- Target weight management between strategies
+
+[Learn more about Strategy Sentinel →](/agents/strategy-sentinel)
+
+### Yield Simulator Agent
+
+Generates yield for the vault by:
+- Accruing interest to the mock pool
+- Simulating yield generation for testing
+
+[Learn more about Yield Simulator →](/agents/yield-simulator)
+
+### Chat Agent
+
+User-facing assistant for:
+- Checking balances and vault information
+- Preparing deposit and withdrawal transactions
+- Managing token approvals
+- Providing public vault metrics
+
+[Learn more about Chat Agent →](/agents/chat-agent)
+
+## Key Responsibilities
+
+<AccordionGroup>
+  <Accordion title="Monitoring & Analytics">
+    Agents continuously monitor:
+    - Vault total assets and managed balance
+    - Strategy-level deposited and borrowed amounts
+    - User share balances and withdrawable amounts
+    - Real-time token prices from CoinGecko
+    - Leverage ratios and LTV (Loan-to-Value)
+    - APY calculations based on TVL growth
+  </Accordion>
+
+  <Accordion title="Risk Management">
+    Automated risk controls include:
+    - Liquidation risk detection
+    - Automated deleveraging when LTV exceeds thresholds
+    - Price volatility monitoring
+    - Strategy pause/unpause based on market conditions
+    - Leverage parameter adjustments (maxDepth, borrowFactor)
+  </Accordion>
+
+  <Accordion title="Portfolio Optimization">
+    Optimization strategies:
+    - Target weight management (default: 80% Leverage, 20% Aave)
+    - Rebalancing to maintain target allocations
+    - Harvesting profits from strategies
+    - Dynamic allocation based on market conditions
+  </Accordion>
+
+  <Accordion title="User Interactions">
+    User-facing capabilities:
+    - Deposit preparation with approval checks
+    - Withdrawal transaction generation
+    - Balance and share conversions
+    - Public vault information access
+  </Accordion>
+</AccordionGroup>
+
+## Agent Framework
+
+All agents are built using the **@iqai/adk** (Agent Development Kit) which provides:
+
+- **LlmAgent**: Base class for creating LLM-powered agents
+- **createTool**: Function for defining agent tools with schemas
+- **ToolContext**: Context management for stateful operations
+- **AgentBuilder**: Fluent API for building agent hierarchies
+
+### Tool Architecture
+
+Each agent has access to specialized tools defined with Zod schemas:
+
+```typescript
+export const get_vault_state = createTool({
+  name: "get_vault_state",
+  description: "Reads the vault's global state.",
+  fn: async () => {
+    const [totalAssets, totalSupply, totalManaged] = await Promise.all([
+      chain_read(env.VAULT_ADDRESS, VaultABI.abi, "totalAssets", []),
+      chain_read(env.VAULT_ADDRESS, VaultABI.abi, "totalSupply", []),
+      chain_read(env.VAULT_ADDRESS, VaultABI.abi, "totalManagedAssets", []),
+    ]);
+    return { raw, human };
+  }
+});
+```
+
+**Source:** `packages/agents/defi-portfolio/src/agents/sub-agents/strategy-sentinel-agent/tools.ts:17-45`
+
+## Decision Making Principles
+
+All agents follow these core principles:
+
+1. **Data-Driven**: All decisions based on on-chain data from tools
+2. **Safety First**: Prefer capital preservation over yield
+3. **Rule-Based**: Use simulation and risk calculations, not assumptions
+4. **Transparent**: All actions explained with tool output references
+5. **Secure**: Strict privacy boundaries for user data
+
+## Next Steps
+
+Explore each agent in detail:
+- [Strategy Sentinel Agent](/agents/strategy-sentinel) - Portfolio management and risk
+- [Chat Agent](/agents/chat-agent) - User interactions
+- [Yield Simulator Agent](/agents/yield-simulator) - Yield generation

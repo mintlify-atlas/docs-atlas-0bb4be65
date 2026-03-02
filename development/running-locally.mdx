@@ -1,0 +1,523 @@
+---
+title: 'Running Locally'
+description: 'Run the full MetaVault AI stack on your local machine'
+---
+
+## Overview
+
+MetaVault AI consists of three main components that need to run together:
+
+1. **Smart Contracts** - Local blockchain node with deployed contracts
+2. **AI Agents** - Backend server managing vault strategies
+3. **Frontend** - Web interface for users
+
+<Info>
+  Make sure you've completed the [Local Setup](/development/local-setup) guide before proceeding.
+</Info>
+
+## Quick Start
+
+You can run all components at once or start them individually.
+
+<Tabs>
+  <Tab title="Run All (Recommended)">
+    From the root directory, start all services simultaneously:
+
+    ```bash
+    pnpm dev:all
+    ```
+
+    This command uses `concurrently` to run:
+    - Local Hardhat node on port 8545
+    - AI Agent server on port 3001
+    - Frontend development server on port 3000
+
+    <Warning>
+      When running all services together, you'll need to deploy contracts and update environment variables in separate terminal windows (see below).
+    </Warning>
+  </Tab>
+
+  <Tab title="Run Individually">
+    For more control, run each component in separate terminal windows:
+
+    **Terminal 1 - Blockchain:**
+    ```bash
+    pnpm dev:contracts
+    ```
+
+    **Terminal 2 - AI Agents:**
+    ```bash
+    pnpm dev:agents
+    ```
+
+    **Terminal 3 - Frontend:**
+    ```bash
+    pnpm dev
+    ```
+  </Tab>
+</Tabs>
+
+## Step-by-Step Setup
+
+For first-time setup, follow these steps in order:
+
+<Steps>
+  <Step title="Start Local Blockchain">
+    Open a terminal and start the Hardhat local node:
+
+    <CodeGroup>
+      ```bash Root Directory
+      pnpm dev:contracts
+      ```
+
+      ```bash Contracts Directory
+      cd packages/contracts
+      pnpm hardhat node
+      ```
+    </CodeGroup>
+
+    The node will start on `http://127.0.0.1:8545` and display 20 test accounts with private keys.
+
+    <Tip>
+      Keep this terminal window open. The blockchain will reset if you stop the process.
+    </Tip>
+
+    **Expected Output:**
+    ```
+    Started HTTP and WebSocket JSON-RPC server at http://127.0.0.1:8545/
+
+    Accounts
+    ========
+    Account #0: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 (10000 ETH)
+    Private Key: 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+    ...
+    ```
+  </Step>
+
+  <Step title="Deploy Smart Contracts">
+    Open a **new terminal** and deploy the contracts to your local node:
+
+    <CodeGroup>
+      ```bash Root Directory
+      pnpm contracts:deploy:local
+      ```
+
+      ```bash Contracts Directory
+      cd packages/contracts
+      pnpm hardhat run scripts/deploy_mocks.ts --network localhost
+      ```
+    </CodeGroup>
+
+    This script will deploy:
+    - Mock LINK token
+    - Mock WETH token
+    - Mock Aave Pool
+    - Mock Swap Router
+    - MetaVault contract
+    - Aave V3 Strategy
+    - Leverage Strategy
+
+    **Save the deployed addresses** - you'll need them for the next step.
+
+    <Note>
+      The deployment script deploys mock versions of Aave and Uniswap for testing purposes. These simulate the behavior of real DeFi protocols.
+    </Note>
+  </Step>
+
+  <Step title="Update Environment Variables">
+    Copy the deployed contract addresses and update your environment files:
+
+    **For AI Agents** (`packages/agents/defi-portfolio/.env`):
+    ```bash
+    VAULT_ADDRESS=0x...
+    ROUTER_ADDRESS=0x...
+    STRATEGY_LEVERAGE_ADDRESS=0x...
+    STRATEGY_AAVE_ADDRESS=0x...
+    LINK_ADDRESS=0x...
+    MOCK_AAVE_POOL_ADDRESS=0x...
+    ```
+
+    **For Frontend** (`packages/frontend/.env.local`):
+    ```bash
+    NEXT_PUBLIC_VAULT_ADDRESS=0x...
+    NEXT_PUBLIC_ROUTER_ADDRESS=0x...
+    NEXT_PUBLIC_STRATEGY_LEVERAGE_ADDRESS=0x...
+    NEXT_PUBLIC_STRATEGY_AAVE_ADDRESS=0x...
+    NEXT_PUBLIC_LINK_ADDRESS=0x...
+    ```
+
+    <Tip>
+      You can automate this by creating a deployment script that outputs a `.env` file or use the addresses from the console output.
+    </Tip>
+  </Step>
+
+  <Step title="Start AI Agent Server">
+    Open a **new terminal** and start the AI agent server:
+
+    <CodeGroup>
+      ```bash Root Directory
+      pnpm dev:agents
+      ```
+
+      ```bash Agents Directory
+      cd packages/agents/defi-portfolio
+      pnpm run dev
+      ```
+    </CodeGroup>
+
+    The server will start on the port specified in your `.env` file (default: 3001).
+
+    **Expected Output:**
+    ```
+    🚀 Agent server running on port 3001
+    🤖 Strategy Sentinel Agent initialized
+    💬 Chat Agent initialized
+    📈 Yield Simulator Agent initialized
+    ```
+
+    <Info>
+      The agents will automatically connect to your local blockchain and start monitoring the vault.
+    </Info>
+  </Step>
+
+  <Step title="Start Frontend Development Server">
+    Open a **new terminal** and start the Next.js frontend:
+
+    <CodeGroup>
+      ```bash Root Directory
+      pnpm dev
+      ```
+
+      ```bash Frontend Directory
+      cd packages/frontend
+      pnpm dev
+      ```
+    </CodeGroup>
+
+    The frontend will be available at `http://localhost:3000`.
+
+    **Expected Output:**
+    ```
+    ▲ Next.js 14.2.0
+    - Local:        http://localhost:3000
+    - Environments: .env.local
+
+    ✓ Ready in 2.3s
+    ```
+  </Step>
+
+  <Step title="Configure MetaMask">
+    To interact with your local blockchain through the frontend:
+
+    1. Open MetaMask and add a custom network:
+       - Network Name: `Localhost 8545`
+       - RPC URL: `http://127.0.0.1:8545`
+       - Chain ID: `31337`
+       - Currency Symbol: `ETH`
+
+    2. Import a test account using one of the private keys from the Hardhat node output
+
+    3. Connect MetaMask to the frontend at `http://localhost:3000`
+
+    <Warning>
+      Only use test accounts from Hardhat for development. Never use accounts that hold real funds.
+    </Warning>
+  </Step>
+</Steps>
+
+## Available Scripts
+
+Here are all the npm scripts available for development:
+
+### Root Package Scripts
+
+<CodeGroup>
+  ```bash Development
+  # Run frontend only
+  pnpm dev
+
+  # Run AI agents
+  pnpm dev:agents
+
+  # Run contracts (compile + node)
+  pnpm dev:contracts
+
+  # Run everything
+  pnpm dev:all
+  ```
+
+  ```bash Build
+  # Build frontend
+  pnpm build
+  pnpm build:frontend
+
+  # Build AI agents
+  pnpm build:agents
+
+  # Compile contracts
+  pnpm build:contracts
+  ```
+
+  ```bash Production
+  # Start frontend (requires build first)
+  pnpm start:frontend
+
+  # Start AI agents (requires build first)
+  pnpm start:agents
+  ```
+
+  ```bash Contracts
+  # Compile smart contracts
+  pnpm contracts:compile
+
+  # Run contract tests
+  pnpm contracts:test
+
+  # Deploy to local network
+  pnpm contracts:deploy:local
+  ```
+
+  ```bash Utilities
+  # Clean all node_modules
+  pnpm clean
+
+  # Run tests
+  pnpm test
+  ```
+</CodeGroup>
+
+### Package-Specific Scripts
+
+<Tabs>
+  <Tab title="Contracts">
+    Navigate to `packages/contracts` and run:
+
+    ```bash
+    # Compile contracts
+    pnpm hardhat compile
+
+    # Run local node
+    pnpm hardhat node
+
+    # Run tests
+    pnpm hardhat test
+
+    # Deploy to localhost
+    pnpm hardhat run scripts/deploy_mocks.ts --network localhost
+
+    # Clean artifacts and cache
+    pnpm hardhat clean
+    ```
+  </Tab>
+
+  <Tab title="Agents">
+    Navigate to `packages/agents/defi-portfolio` and run:
+
+    ```bash
+    # Development with watch mode
+    pnpm dev
+
+    # Build TypeScript
+    pnpm build
+
+    # Start production server
+    pnpm start
+
+    # Clean build artifacts
+    pnpm clean
+    ```
+  </Tab>
+
+  <Tab title="Frontend">
+    Navigate to `packages/frontend` and run:
+
+    ```bash
+    # Development server
+    pnpm dev
+
+    # Build for production
+    pnpm build
+
+    # Start production server
+    pnpm start
+
+    # Run linting
+    pnpm lint
+    ```
+  </Tab>
+</Tabs>
+
+## Running AI Agent Automation
+
+The AI agents can run automated tasks on a schedule:
+
+```bash
+cd packages/agents/defi-portfolio
+pnpm run automate:cron
+```
+
+This starts the Strategy Sentinel Agent to:
+- Monitor strategy health every 5 minutes
+- Check LTV ratios and liquidation risks
+- Automatically rebalance portfolios
+- Harvest and compound yields
+
+<Info>
+  The automation is optional for development but recommended to see the full AI agent capabilities.
+</Info>
+
+## Development Workflow
+
+Here's a typical development workflow:
+
+<Steps>
+  <Step title="Start Services">
+    Open 3-4 terminal windows and start:
+    1. Hardhat node
+    2. AI agent server
+    3. Frontend
+    4. (Optional) Automation cron
+  </Step>
+
+  <Step title="Deploy Contracts">
+    Deploy or redeploy contracts as needed:
+    ```bash
+    pnpm contracts:deploy:local
+    ```
+  </Step>
+
+  <Step title="Make Changes">
+    Edit code in any package:
+    - Contracts: Update `.sol` files, recompile with `pnpm hardhat compile`
+    - Agents: TypeScript changes auto-reload with `tsx watch`
+    - Frontend: Next.js hot-reloads automatically
+  </Step>
+
+  <Step title="Test Changes">
+    - Interact through frontend at `http://localhost:3000`
+    - Call agent API directly at `http://localhost:3001`
+    - Use Hardhat console for contract interactions
+  </Step>
+</Steps>
+
+## Accessing the Application
+
+Once everything is running:
+
+<CardGroup cols={3}>
+  <Card title="Frontend" icon="browser">
+    **URL:** http://localhost:3000
+
+    Main user interface for depositing, withdrawing, and chatting with AI
+  </Card>
+
+  <Card title="Agent API" icon="robot">
+    **URL:** http://localhost:3001
+
+    AI agent REST API endpoints
+  </Card>
+
+  <Card title="Chat Agent" icon="comments">
+    **URL:** http://localhost:3002
+
+    Chat interface endpoint
+  </Card>
+</CardGroup>
+
+## Common Issues
+
+<AccordionGroup>
+  <Accordion title="Contracts not deploying">
+    Make sure:
+    - Hardhat node is running
+    - You're using the correct network (`--network localhost`)
+    - Your `.env` has a valid private key
+
+    Try restarting the Hardhat node:
+    ```bash
+    # Stop current node (Ctrl+C)
+    pnpm dev:contracts
+    ```
+  </Accordion>
+
+  <Accordion title="Agents can't connect to contracts">
+    Verify:
+    - Contract addresses in `.env` match deployed addresses
+    - RPC_URL points to `http://127.0.0.1:8545`
+    - Hardhat node is running
+
+    Check agent logs for connection errors.
+  </Accordion>
+
+  <Accordion title="Frontend shows wrong network">
+    Ensure:
+    - MetaMask is connected to `Localhost 8545` network (Chain ID: 31337)
+    - Contract addresses in `.env.local` are correct and prefixed with `NEXT_PUBLIC_`
+    - You've refreshed the browser after updating `.env.local`
+  </Accordion>
+
+  <Accordion title="Port already in use">
+    Find and kill the process using the port:
+    ```bash
+    # For port 3000 (frontend)
+    lsof -ti:3000 | xargs kill -9
+
+    # For port 8545 (blockchain)
+    lsof -ti:8545 | xargs kill -9
+
+    # For port 3001 (agents)
+    lsof -ti:3001 | xargs kill -9
+    ```
+
+    Or change the port in your configuration files.
+  </Accordion>
+
+  <Accordion title="Blockchain state reset">
+    If you restart the Hardhat node, all state is lost. You need to:
+    1. Redeploy contracts
+    2. Update environment variables
+    3. Restart agents and frontend
+    4. Reconfigure MetaMask (import accounts again)
+  </Accordion>
+</AccordionGroup>
+
+## Development Tips
+
+<CardGroup cols={2}>
+  <Card title="Use Hardhat Console" icon="terminal">
+    Interact with contracts directly:
+    ```bash
+    cd packages/contracts
+    pnpm hardhat console --network localhost
+    ```
+  </Card>
+
+  <Card title="Enable Debug Logs" icon="bug">
+    Set `ADK_DEBUG="true"` in agents `.env` for detailed agent logs
+  </Card>
+
+  <Card title="Watch Contract Changes" icon="eye">
+    Auto-recompile on changes:
+    ```bash
+    pnpm hardhat watch compilation
+    ```
+  </Card>
+
+  <Card title="Use Hardhat Network Helper" icon="wrench">
+    Time travel and snapshot in tests:
+    ```typescript
+    import { time } from "@nomicfoundation/hardhat-network-helpers";
+    ```
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Testing Guide" icon="vial" href="/development/testing">
+    Learn how to run tests and verify functionality
+  </Card>
+  <Card title="Architecture" icon="diagram-project" href="/architecture/system-overview">
+    Understand the system architecture
+  </Card>
+</CardGroup>

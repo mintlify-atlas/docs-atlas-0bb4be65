@@ -1,0 +1,351 @@
+---
+title: How it works
+description: Understanding the MetaVault AI architecture, strategies, and agent system
+---
+
+# How MetaVault AI works
+
+MetaVault AI operates through a coordinated system of smart contracts, yield strategies, and autonomous AI agents. This page explains how each component works together.
+
+## Vault architecture
+
+The vault is built on an ERC20 share-based architecture where users receive vault share tokens (VST) representing their portion of the total assets under management.
+
+### Core vault contract
+
+The main `Vault.sol` contract handles:
+
+- **Deposits**: Users deposit LINK tokens and receive shares based on current share price
+- **Withdrawals**: Users burn shares to receive underlying assets plus earned yield
+- **Share pricing**: Dynamic pricing based on total managed assets vs total shares
+- **Fee management**: Performance fees on profits and withdrawal fees
+
+```solidity
+function deposit(uint256 amount) external returns (uint256) {
+    uint256 shares = convertToShares(amount);
+    asset.safeTransferFrom(msg.sender, address(this), amount);
+    _mint(msg.sender, shares);
+    netDeposited[msg.sender] += amount;
+    emit Deposit(msg.sender, amount, shares);
+    return shares;
+}
+```
+
+### Strategy router
+
+The `StrategyRouter.sol` contract orchestrates fund allocation across multiple strategies:
+
+- Maintains a list of active strategies with target allocation weights (in basis points)
+- Rebalances funds to match target allocations
+- Harvests yields from all strategies
+- Handles withdrawals by pulling from strategies as needed
+
+```solidity
+function rebalance() external onlyOwner {
+    uint256 totalManaged = _computeTotalManaged();
+    
+    // Pull from overweight strategies
+    for (uint256 i = 0; i < strategies.length; i++) {
+        address strat = strategies[i];
+        uint256 current = IStrategy(strat).strategyBalance();
+        uint256 desired = (totalManaged * targetBps[strat]) / 10000;
+        
+        if (current > desired) {
+            uint256 excess = current - desired;
+            IStrategy(strat).withdrawToVault(excess);
+        }
+    }
+    
+    // Push to underweight strategies
+    // ...
+}
+```
+
+## Yield strategies
+
+MetaVault AI currently supports two complementary strategies that balance risk and return.
+
+<Note>
+  All strategies currently operate on mock contracts that simulate Aave V3 behavior for predictable testing.
+</Note>
+
+### Aave V3 strategy (safe)
+
+A conservative, low-risk strategy that supplies LINK tokens to Aave V3 to earn passive lending yield.
+
+**How it works:**
+1. Receives LINK from the vault via `invest()`
+2. Supplies LINK to Aave's lending pool
+3. Receives aTokens that accrue interest over time
+4. Harvests profits by withdrawing accrued interest back to vault
+
+**Risk profile**: Low - No leverage, no liquidation risk
+
+```solidity
+function invest(uint256 amount) external override onlyRouter {
+    pool.supply(address(token), amount, address(this), 0);
+    deposited += amount;
+}
+
+function harvest() external override onlyRouter {
+    (address aTokenAddr, , ) = dataProvider.getReserveTokensAddresses(address(token));
+    uint256 aBal = IERC20(aTokenAddr).balanceOf(address(this));
+    
+    if (aBal > deposited) {
+        uint256 profit = aBal - deposited;
+        uint256 out = pool.withdraw(address(token), profit, address(this));
+        token.safeTransfer(vault, out);
+    }
+}
+```
+
+### Aave leverage strategy (aggressive)
+
+A high-yield strategy that uses leveraged looping to amplify returns through repeated borrow-swap-supply cycles.
+
+**How it works:**
+1. Supplies LINK as collateral to Aave
+2. Borrows WETH against the LINK collateral
+3. Swaps borrowed WETH for LINK via Uniswap V2
+4. Supplies the swapped LINK back to Aave
+5. Repeats for `maxDepth` iterations (default: 3)
+
+**Risk profile**: High - Uses leverage, subject to liquidation if LTV exceeds threshold
+
+**Key parameters:**
+- `maxDepth`: Maximum loop iterations (1-6, default: 3)
+- `borrowFactor`: Percentage of collateral to borrow per loop (0-8000 basis points, default: 6000 = 60%)
+- `paused`: Emergency pause flag to stop new investments
+
+```solidity
+function invest(uint256 amount) external override onlyRouter {
+    require(!paused, "paused");
+    
+    // Initial supply
+    pool.supply(address(token), amount, address(this), 0);
+    uint256 totalSupplied = amount;
+    
+    // Leverage loop
+    for (uint8 i = 0; i < maxDepth; i++) {
+        // Borrow WETH conservatively
+        uint256 borrowAmountWeth = calculateSafeBorrow();
+        pool.borrow(WETH, borrowAmountWeth, 2, 0);
+        
+        // Swap WETH → LINK
+        address[] memory path = new address[](2);
+        path[0] = WETH;
+        path[1] = address(token);
+        swapRouter.swapExactTokensForTokens(borrowAmountWeth, 0, path, address(this), block.timestamp + 300);
+        
+        // Supply swapped LINK
+        uint256 addedLink = token.balanceOf(address(this));
+        pool.supply(address(token), addedLink, address(this), 0);
+        totalSupplied += addedLink;
+    }
+}
+```
+
+**Deleveraging**: When risk is detected, the strategy can unwind positions:
+
+```solidity
+function deleverageAll(uint256 maxLoops) external onlyRouter {
+    for (uint256 i = 0; i < maxLoops; i++) {
+        uint256 debt = pool.getUserDebt(address(this), WETH);
+        if (debt == 0) break;
+        
+        // Calculate LINK needed to repay debt
+        uint256 linkNeeded = (debt * oracle.getPrice(WETH) * 105) / (1e18 * 100);
+        
+        // Withdraw LINK, swap to WETH, repay debt
+        pool.withdraw(address(token), linkNeeded, address(this));
+        swapRouter.swapExactTokensForTokens(linkNeeded, 0, path, address(this), block.timestamp + 300);
+        pool.repay(WETH, debt, 2, address(this));
+    }
+}
+```
+
+## AI agent system
+
+MetaVault AI is powered by the ADK-TS (Agent Development Kit) framework, which provides conversation orchestration, tool management, and state management for TypeScript agents.
+
+### Why ADK-TS?
+
+ADK-TS enables:
+- **Session memory**: Maintains conversation context across interactions
+- **Tool orchestration**: Structured tool calling and response formatting
+- **TypeScript-native**: Fully typed agent logic and integrations
+- **Modular architecture**: Specialized agents with distinct responsibilities
+
+### Agent team
+
+The vault is managed by three specialized agents:
+
+#### 1. Strategy Sentinel agent
+
+**Role**: Portfolio guardian and risk manager
+
+**Responsibilities:**
+- Monitors strategy health (LTV, liquidation risk, deposited amounts)
+- Fetches real-time token prices from CoinGecko API
+- Manages leverage strategy parameters (`maxDepth`, `borrowFactor`, pause state)
+- Adjusts target allocation weights between strategies
+- Triggers rebalancing and harvesting operations
+- Auto-deleverages when risk thresholds are exceeded
+
+**Key tools:**
+```typescript
+// Monitoring
+get_strategy_states
+get_vault_state
+get_token_prices
+get_leverage_strategy_state
+get_vault_apy
+
+// Risk management
+check_liquidation_risk
+auto_deleverage
+toggle_leverage_strategy_pause
+update_leverage_params
+
+// Portfolio management
+update_strategy_target_weights
+rebalance_vault
+harvest_strategy
+```
+
+**Decision logic:**
+- Always checks LINK/WETH prices before making leverage decisions
+- When LTV > 70% or high volatility → pause or reduce leverage
+- When prices drop rapidly (>10%) → adjust strategy weights
+- Default allocation: 80% leverage, 20% Aave safe strategy
+
+#### 2. Chat agent
+
+**Role**: User assistant and interface
+
+**Responsibilities:**
+- Provides natural language interface for vault interactions
+- Checks user balances and shares
+- Facilitates deposits with approval flow management
+- Handles withdrawals
+- Displays public vault metrics (APY, total assets)
+
+**Security boundaries:**
+- Only accesses data for the requesting user's wallet
+- Never exposes admin functions or strategy internals
+- Strictly enforces privacy between users
+
+**Key tools:**
+```typescript
+// User account
+get_user_vault_balance
+get_wallet_link_balance
+user_deposit
+user_withdraw
+
+// Public info
+get_public_vault_info
+get_token_prices
+get_vault_apy
+
+// Utilities
+check_allowance
+approve_link
+convert_to_shares
+convert_to_assets
+```
+
+#### 3. Yield Simulator agent
+
+**Role**: Testing and validation
+
+**Responsibilities:**
+- Simulates yield accrual scenarios
+- Validates profit distribution logic
+- Helps with development and testing
+
+## Agent orchestration
+
+The main agent (`agent.ts`) coordinates the specialized sub-agents using ADK-TS's `AgentBuilder`:
+
+```typescript
+import { AgentBuilder } from "@iqai/adk";
+
+const agent = new AgentBuilder()
+  .addAgent(strategySentinelAgent)
+  .addAgent(chatAgent)
+  .addAgent(yieldSimulatorAgent)
+  .build();
+```
+
+## Automation
+
+The Strategy Sentinel agent runs on a cron schedule to continuously monitor and manage the vault:
+
+```typescript
+// automation.ts
+setInterval(async () => {
+  // Check strategy health
+  const states = await get_strategy_states();
+  const prices = await get_token_prices();
+  
+  // Detect risks
+  const risk = await check_liquidation_risk();
+  
+  // Take action if needed
+  if (risk.ltv > 0.7) {
+    await auto_deleverage();
+  }
+}, 60000); // Every 60 seconds
+```
+
+## User interaction flow
+
+### Deposit flow
+
+1. User requests deposit via frontend or chat
+2. Chat agent checks LINK allowance
+3. If insufficient, agent prepares approval transaction
+4. User signs approval transaction
+5. Chat agent prepares deposit transaction
+6. User signs deposit transaction
+7. Vault mints shares and emits `Deposit` event
+8. Strategy Sentinel may trigger rebalance to invest funds
+
+### Withdrawal flow
+
+1. User requests withdrawal
+2. Chat agent prepares withdrawal transaction
+3. User signs transaction
+4. Vault burns shares and calculates assets owed
+5. If vault liquidity insufficient, router pulls from strategies
+6. Withdrawal fee applied (if configured)
+7. Assets transferred to user
+
+## Performance tracking
+
+The vault tracks individual user performance:
+
+```solidity
+function userGrowth(address user) public view returns (int256) {
+    uint256 deposited = netDeposited[user];
+    if (deposited == 0) return 0;
+    
+    uint256 withdrawn = totalWithdrawn[user];
+    uint256 currentValue = convertToAssets(balanceOf(user));
+    
+    int256 pnl = int256(currentValue + withdrawn) - int256(deposited);
+    return pnl;
+}
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Key features" icon="stars" href="/key-features">
+    Explore the unique features powered by AI agents
+  </Card>
+  <Card title="Getting started" icon="rocket" href="/getting-started/installation">
+    Set up and run MetaVault AI locally
+  </Card>
+</CardGroup>

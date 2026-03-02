@@ -1,0 +1,535 @@
+---
+title: 'Chat Agent API'
+description: 'User-facing API for vault interactions via the Chat Agent'
+icon: 'message-bot'
+---
+
+## Overview
+
+The Chat Agent provides a conversational interface for users to interact with the MetaVault. It handles deposits, withdrawals, balance checks, and provides public vault information while maintaining strict security boundaries.
+
+## Security Model
+
+<Warning>
+  The Chat Agent can ONLY access data for the requesting user's wallet address. It cannot view other users' balances or execute admin functions.
+</Warning>
+
+### Allowed Operations
+- Check user's own balance and shares
+- Get wallet LINK balance
+- View public vault information (TVL, APY, prices)
+- Prepare unsigned deposit/withdrawal transactions
+- Check and approve token allowances
+
+### Restricted Operations
+- Admin functions (rebalance, harvest, parameter updates)
+- Strategy internals (leverage ratios, debt positions)
+- Other users' private data
+- Risk calculations and liquidation data
+
+## Agent Tools
+
+The Chat Agent has access to the following tools, which are invoked automatically based on user requests:
+
+### User Account Tools
+
+#### get_my_balance
+
+Gets the current user's vault share balance and withdrawable LINK amount.
+
+<ParamField path="userAddress" type="string" required>
+  The user's wallet address
+</ParamField>
+
+<ResponseField name="raw.shares" type="string">
+  Raw share balance (18 decimals)
+</ResponseField>
+
+<ResponseField name="raw.withdrawable" type="string">
+  Raw withdrawable LINK amount (18 decimals)
+</ResponseField>
+
+<ResponseField name="human.shares" type="string">
+  Human-readable share balance
+</ResponseField>
+
+<ResponseField name="human.withdrawable" type="string">
+  Human-readable withdrawable LINK amount
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "raw": {
+    "shares": "95230000000000000000",
+    "withdrawable": "100500000000000000000"
+  },
+  "human": {
+    "shares": "95.23",
+    "withdrawable": "100.50"
+  }
+}
+```
+</ResponseExample>
+
+#### get_link_balance
+
+Returns the user's LINK balance in their wallet.
+
+<ParamField path="wallet" type="string" required>
+  The user's wallet address
+</ParamField>
+
+<ResponseField name="wallet" type="string">
+  Wallet address queried
+</ResponseField>
+
+<ResponseField name="rawBalance" type="string">
+  Raw LINK balance (18 decimals)
+</ResponseField>
+
+<ResponseField name="balance" type="string">
+  Human-readable LINK balance
+</ResponseField>
+
+<ResponseField name="symbol" type="string">
+  Token symbol ("LINK")
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Formatted message with balance
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "wallet": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
+  "rawBalance": "500000000000000000000",
+  "balance": "500.00",
+  "symbol": "LINK",
+  "message": "The wallet 0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb has 500.00 LINK."
+}
+```
+</ResponseExample>
+
+#### user_deposit
+
+Prepares an unsigned LINK deposit transaction for the user to sign.
+
+<ParamField path="amount" type="string" required>
+  Amount of LINK to deposit (human-readable format)
+</ParamField>
+
+<ResponseField name="success" type="boolean">
+  Always true if transaction is prepared successfully
+</ResponseField>
+
+<ResponseField name="unsignedTx" type="object">
+  Unsigned transaction object
+  <Expandable title="properties">
+    <ResponseField name="to" type="string">
+      Vault contract address
+    </ResponseField>
+    <ResponseField name="data" type="string">
+      Encoded deposit function call
+    </ResponseField>
+    <ResponseField name="value" type="string">
+      ETH value (always "0" for ERC20 deposits)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  User-friendly message about the transaction
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "success": true,
+  "unsignedTx": {
+    "to": "0xVAULT_ADDRESS",
+    "data": "0xb6b55f25000000000000000000000000000000000000000000000000002386f26fc10000",
+    "value": "0"
+  },
+  "message": "Please sign this deposit transaction for 10.00 LINK."
+}
+```
+</ResponseExample>
+
+#### user_withdraw
+
+Prepares an unsigned withdrawal transaction for the user to sign.
+
+<ParamField path="shares" type="string" required>
+  Number of shares to withdraw (human-readable format)
+</ParamField>
+
+<ResponseField name="success" type="boolean">
+  Always true if transaction is prepared successfully
+</ResponseField>
+
+<ResponseField name="unsignedTx" type="object">
+  Unsigned transaction object (same structure as deposit)
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  User-friendly message about the transaction
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "success": true,
+  "unsignedTx": {
+    "to": "0xVAULT_ADDRESS",
+    "data": "0x2e1a7d4d000000000000000000000000000000000000000000000000002386f26fc10000",
+    "value": "0"
+  },
+  "message": "Please sign this withdraw transaction for 10.00 LINK."
+}
+```
+</ResponseExample>
+
+### Approval Tools
+
+#### check_allowance
+
+Checks if user's LINK token allowance is sufficient for a deposit.
+
+<ParamField path="wallet" type="string" required>
+  User's wallet address
+</ParamField>
+
+<ParamField path="amount" type="string" required>
+  Desired deposit amount (human-readable)
+</ParamField>
+
+<ResponseField name="allowance" type="string">
+  Current allowance (raw 18 decimal format)
+</ResponseField>
+
+<ResponseField name="enough" type="boolean">
+  Whether allowance is sufficient
+</ResponseField>
+
+<ResponseField name="needed" type="string">
+  Required allowance (raw 18 decimal format)
+</ResponseField>
+
+<ResponseField name="wallet" type="string">
+  Wallet address checked
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "allowance": "5000000000000000000",
+  "enough": false,
+  "needed": "10000000000000000000",
+  "wallet": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb"
+}
+```
+</ResponseExample>
+
+#### approve_link
+
+Prepares an unsigned approval transaction so the vault can spend LINK.
+
+<ParamField path="amount" type="string" required>
+  Amount of LINK to approve (human-readable)
+</ParamField>
+
+<ResponseField name="unsignedTx" type="object">
+  Unsigned approval transaction
+  <Expandable title="properties">
+    <ResponseField name="to" type="string">
+      LINK token contract address
+    </ResponseField>
+    <ResponseField name="data" type="string">
+      Encoded approve function call
+    </ResponseField>
+    <ResponseField name="value" type="string">
+      ETH value (always "0")
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  User-friendly approval message
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "unsignedTx": {
+    "to": "0xLINK_ADDRESS",
+    "data": "0x095ea7b3000000000000000000000000VAULT_ADDRESS000000000000000000000000002386f26fc10000",
+    "value": "0"
+  },
+  "message": "Please sign this transaction to approve 10.00 LINK for spending."
+}
+```
+</ResponseExample>
+
+### Public Information Tools
+
+#### get_public_vault_info
+
+Gets public vault information including total managed assets and total supply.
+
+<ResponseField name="raw.totalManaged" type="string">
+  Total managed assets (raw 18 decimals)
+</ResponseField>
+
+<ResponseField name="raw.totalSupply" type="string">
+  Total share supply (raw 18 decimals)
+</ResponseField>
+
+<ResponseField name="human.totalManaged" type="string">
+  Human-readable total managed LINK
+</ResponseField>
+
+<ResponseField name="human.totalSupply" type="string">
+  Human-readable total shares
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "raw": {
+    "totalManaged": "1000000000000000000000",
+    "totalSupply": "950000000000000000000"
+  },
+  "human": {
+    "totalManaged": "1000.00",
+    "totalSupply": "950.00"
+  }
+}
+```
+</ResponseExample>
+
+#### get_token_prices
+
+Fetches real-time LINK price from CoinGecko API.
+
+<ResponseField name="raw.linkPriceUSD" type="string">
+  LINK price in USD (scaled by 1e18)
+</ResponseField>
+
+<ResponseField name="human.linkPriceUSD" type="string">
+  Human-readable LINK price
+</ResponseField>
+
+<ResponseField name="human.link24hChange" type="string">
+  24-hour price change percentage
+</ResponseField>
+
+<ResponseField name="source" type="string">
+  Data source ("CoinGecko API")
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "raw": {
+    "linkPriceUSD": "15000000000000000000"
+  },
+  "human": {
+    "linkPriceUSD": "15.00",
+    "link24hChange": "2.50%"
+  },
+  "source": "CoinGecko API"
+}
+```
+</ResponseExample>
+
+#### get_vault_apy
+
+Gets the current vault APY based on TVL growth.
+
+<ResponseField name="apy" type="number">
+  APY as a decimal (e.g., 0.12 = 12%)
+</ResponseField>
+
+<ResponseField name="readable" type="string">
+  Human-readable APY percentage
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Status message
+</ResponseField>
+
+<ResponseField name="tvl" type="number">
+  Current total value locked
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "apy": 0.1245,
+  "readable": "12.45%",
+  "tvl": 1000000000000000000000,
+  "growth": 0.05,
+  "dt": 86400
+}
+```
+</ResponseExample>
+
+### Conversion Tools
+
+#### convert_to_shares
+
+Converts LINK amount to Vault Share Tokens (VST).
+
+<ParamField path="amount" type="string" required>
+  Amount of LINK (human-readable format)
+</ParamField>
+
+<ResponseField name="shares" type="string">
+  Equivalent number of shares
+</ResponseField>
+
+<ResponseExample>
+```json
+"95.23"
+```
+</ResponseExample>
+
+#### convert_to_assets
+
+Converts Vault Share Tokens (VST) to LINK.
+
+<ParamField path="shares" type="string" required>
+  Amount of shares/VST (human-readable format)
+</ParamField>
+
+<ResponseField name="linkAmount" type="string">
+  Equivalent amount of LINK
+</ResponseField>
+
+<ResponseExample>
+```json
+"100.50"
+```
+</ResponseExample>
+
+## Deposit Flow
+
+The Chat Agent automatically handles the two-step deposit process:
+
+### Step 1: Check Allowance
+
+When a user requests a deposit, the agent first checks if the vault has sufficient allowance to spend the user's LINK tokens.
+
+<Steps>
+  <Step title="User requests deposit">
+    User: "Deposit 10 LINK"
+  </Step>
+  
+  <Step title="Agent checks allowance">
+    Agent calls `check_allowance(wallet, "10")`
+  </Step>
+  
+  <Step title="Approval required">
+    If allowance is insufficient, agent calls `approve_link("10")` and returns approval transaction
+  </Step>
+  
+  <Step title="User signs approval">
+    User signs the approval transaction in their wallet
+  </Step>
+  
+  <Step title="Deposit transaction">
+    After approval is confirmed, agent calls `user_deposit("10")` and returns deposit transaction
+  </Step>
+  
+  <Step title="User signs deposit">
+    User signs the deposit transaction to complete the deposit
+  </Step>
+</Steps>
+
+### Example Chat Interaction
+
+<RequestExample>
+```bash
+curl -X POST http://localhost:8080/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Deposit 10 LINK",
+    "wallet": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
+    "sessionId": "user123"
+  }'
+```
+</RequestExample>
+
+<ResponseExample>
+```json
+{
+  "success": true,
+  "sessionId": "user123",
+  "reply": "To deposit 10 LINK, you first need to approve the vault to spend your LINK tokens. Please sign this approval transaction.",
+  "unsignedTx": {
+    "to": "0xLINK_ADDRESS",
+    "data": "0x095ea7b3...",
+    "value": "0"
+  },
+  "step": "approval"
+}
+```
+</ResponseExample>
+
+## Withdrawal Flow
+
+Withdrawals are simpler and only require one transaction:
+
+<Steps>
+  <Step title="User requests withdrawal">
+    User: "Withdraw 5 LINK"
+  </Step>
+  
+  <Step title="Agent prepares transaction">
+    Agent calls `user_withdraw("5")` and returns unsigned transaction
+  </Step>
+  
+  <Step title="User signs withdrawal">
+    User signs the withdrawal transaction to receive LINK
+  </Step>
+</Steps>
+
+## Response Format
+
+All Chat Agent responses follow a structured JSON format when tools are used:
+
+```json
+{
+  "reply": "Human-friendly message",
+  "unsignedTx": null | { /* transaction object */ },
+  "needsApproval": true | false | null,
+  "step": "approval" | "deposit" | "withdrawal" | "info"
+}
+```
+
+- `reply`: Text response for the user
+- `unsignedTx`: Transaction to sign (if applicable)
+- `needsApproval`: Whether an approval is needed before proceeding
+- `step`: Current stage in the transaction flow
+
+## Error Handling
+
+The Chat Agent returns user-friendly error messages:
+
+<ResponseExample>
+```json
+{
+  "success": false,
+  "error": "Insufficient LINK balance. You need 10 LINK but only have 5 LINK."
+}
+```
+</ResponseExample>
+
+Common error scenarios:
+- Insufficient LINK balance
+- Insufficient share balance for withdrawal
+- Invalid wallet address
+- Network errors (CoinGecko API failures)
+- Contract call failures

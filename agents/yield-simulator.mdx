@@ -1,0 +1,290 @@
+---
+title: Yield Simulator Agent
+description: AI agent for generating and accruing yield to the pool for testing and profit generation
+---
+
+The Yield Simulator Agent (also called Yield Generator Agent) is responsible for generating or accruing yield to the pool, which allows the vault to generate profits for testing and development purposes.
+
+## Overview
+
+```typescript
+export async function getYieldGeneratorAgent() {
+    return new LlmAgent({
+        name: "yield_generator_agent",
+        description: "Generating or Accruing Yield to the Pool.",
+        instruction: "use the tool accrueInterest for accruing yield or interest to the pool for generating profits to the vault.",
+        model: model,
+        tools: [yield_generator]
+    });
+}
+```
+
+**Source:** `packages/agents/defi-portfolio/src/agents/sub-agents/yield-generator-agent/agent.ts:5-13`
+
+## Purpose
+
+The Yield Simulator Agent serves a specific purpose in the MetaVault ecosystem:
+
+- **Testing Environment**: Simulates yield accrual in mock/test environments
+- **Profit Generation**: Triggers interest accrual to increase pool value
+- **Development Support**: Enables testing of yield-dependent features without waiting for real market yields
+
+## Available Tools
+
+<AccordionGroup>
+  <Accordion title="yield_generator">
+    Accrues interest in the mock Aave pool.
+
+    **Implementation:**
+    ```typescript
+    export const yield_generator = createTool({
+        name: "yield_generator",
+        description: "Accrues interest in the mock pool.",
+        fn: async () => {
+          const linkTx = await chain_write(
+            env.MOCK_AAVE_POOL_ADDRESS,
+            PoolABI.abi,
+            "accrue",
+            [env.LINK_ADDRESS]
+          );
+      
+          return toStringBN({
+            message: "Yield Accrued Successfully!",
+            txHash: linkTx.hash
+          });
+        }
+    });
+    ```
+    **Source:** `packages/agents/defi-portfolio/src/agents/sub-agents/yield-generator-agent/tools.ts:12-28`
+
+    **Parameters:** None (uses environment configuration)
+
+    **Returns:**
+    ```typescript
+    {
+      message: "Yield Accrued Successfully!",
+      txHash: string // Transaction hash of the accrue operation
+    }
+    ```
+
+    **Smart Contract Interaction:**
+    - Contract: Mock Aave Pool (configured via `MOCK_AAVE_POOL_ADDRESS`)
+    - Function: `accrue(address token)`
+    - Parameter: LINK token address
+  </Accordion>
+</AccordionGroup>
+
+## How It Works
+
+### Yield Accrual Process
+
+The Yield Simulator triggers the mock pool to accrue interest:
+
+1. **Call `yield_generator` tool**
+2. **Executes on-chain transaction** to `MOCK_AAVE_POOL_ADDRESS.accrue(LINK_ADDRESS)`
+3. **Returns transaction hash** confirming successful yield accrual
+
+### Integration with Root Agent
+
+The Root Agent uses the Yield Simulator for accruing or generating yield to the pool:
+
+```typescript
+const yieldSimulatorAgent = await getYieldGeneratorAgent();
+return AgentBuilder
+    .withInstruction(`
+        Use the sub-agent Yield Generator Agent for accruing or generating yeild to the Pool.
+    `)
+    .withSubAgents([strategySentinalAgent, yieldSimulatorAgent])
+    .build();
+```
+
+**Source:** `packages/agents/defi-portfolio/src/agents/agent.ts:8-14`
+
+## Use Cases
+
+### Development & Testing
+
+```
+1. Deploy contracts to test network
+2. Initialize vault with strategies
+3. Call yield_generator() to simulate yield accrual
+4. Test harvest, rebalance, and APY calculations
+5. Verify profit distribution
+```
+
+### Automated Testing Workflows
+
+```
+1. Setup: Deploy vault + strategies
+2. Action: Deposit funds
+3. Simulate: yield_generator() → accrue interest
+4. Harvest: Strategy Sentinel calls harvest_strategy()
+5. Assert: Verify increased TVL and APY
+```
+
+### Manual Yield Generation
+
+Developers or administrators can manually trigger yield accrual:
+
+```
+User: "Generate some yield for the pool"
+
+Agent:
+1. yield_generator()
+2. Returns: {
+     message: "Yield Accrued Successfully!",
+     txHash: "0x123..."
+   }
+```
+
+## Implementation Details
+
+### Dependencies
+
+```typescript
+import { createTool } from "@iqai/adk";
+import { 
+    StrategyLeverageABI, 
+    StrategyAaveV3ABI, 
+    VaultABI, 
+    StrategyRouterABI,
+    PoolABI
+} from "../../shared/abi";
+import { chain_read, chain_write, toStringBN } from "../../shared/utils/chain";
+import { env } from "../../../env";
+```
+
+**Source:** `tools.ts:1-10`
+
+### Environment Variables
+
+**Required configuration:**
+- `MOCK_AAVE_POOL_ADDRESS`: Address of the mock Aave pool contract
+- `LINK_ADDRESS`: Address of the LINK token
+
+### Chain Utilities
+
+**`chain_write`**: Executes on-chain write operations
+- Parameters: `(address, abi, functionName, args)`
+- Returns: Transaction receipt with hash
+
+**`toStringBN`**: Converts BigNumber values to string format for JSON serialization
+
+## Limitations
+
+### Mock Environment Only
+
+The Yield Simulator is designed for **mock/test environments only**:
+
+- Uses `MOCK_AAVE_POOL_ADDRESS` (not production Aave)
+- Calls `accrue()` function that may not exist in real protocols
+- Intended for development and testing purposes
+
+### No Production Use
+
+In production environments:
+- Real yield comes from actual DeFi protocols (Aave, Compound, etc.)
+- No manual yield accrual is possible
+- Yield depends on market conditions and protocol performance
+
+## Comparison with Other Agents
+
+| Feature | Yield Simulator | Strategy Sentinel | Chat Agent |
+|---------|----------------|-------------------|------------|
+| **Purpose** | Generate test yield | Manage strategies | User interactions |
+| **Tools** | 1 tool | 15 tools | 11 tools |
+| **Complexity** | Simple | Complex | Moderate |
+| **User-facing** | No (admin/dev) | No (admin) | Yes (public) |
+| **Production** | Test only | Production-ready | Production-ready |
+
+## Example Workflow
+
+### Testing Harvest Functionality
+
+```
+1. Setup:
+   - Deploy vault with Aave strategy
+   - Deposit 1000 LINK
+
+2. Generate Yield:
+   - Call yield_generator()
+   - Mock pool accrues interest
+   - Strategy balance increases
+
+3. Harvest:
+   - Strategy Sentinel detects profit
+   - Calls harvest_strategy()
+   - Profits returned to vault
+
+4. Verify:
+   - Check vault APY with get_vault_apy()
+   - Verify increased totalManagedAssets
+   - Confirm user share value increased
+```
+
+### Integration Testing
+
+```typescript
+// Test script example
+async function testYieldFlow() {
+  // 1. Deposit to vault
+  await vault_deposit("1000");
+  
+  // 2. Record initial state
+  const before = await get_vault_state();
+  
+  // 3. Simulate yield accrual
+  const { txHash } = await yield_generator();
+  console.log(`Yield accrued: ${txHash}`);
+  
+  // 4. Harvest profits
+  await harvest_strategy();
+  
+  // 5. Verify increased TVL
+  const after = await get_vault_state();
+  assert(after.totalManaged > before.totalManaged);
+}
+```
+
+## Related Tools
+
+The Yield Simulator works in conjunction with other vault tools:
+
+- **Strategy Sentinel's `harvest_strategy`**: Collects generated yield
+- **Strategy Sentinel's `get_vault_apy`**: Measures yield generation rate
+- **Strategy Sentinel's `get_vault_state`**: Monitors TVL changes after yield accrual
+
+## Behavioral Notes
+
+The Yield Simulator Agent has minimal instruction logic:
+
+> "use the tool accrueInterest for accruing yield or interest to the pool for generating profits to the vault."
+
+**Source:** `agent.ts:9`
+
+This simple instruction indicates the agent's single-purpose nature:
+- No complex decision making
+- No risk assessment
+- No user interaction
+- Direct execution of yield accrual
+
+## Future Enhancements
+
+Potential improvements to the Yield Simulator:
+
+1. **Configurable Yield Amounts**: Allow specifying yield percentage or amount
+2. **Multiple Token Support**: Accrue yield for other tokens beyond LINK
+3. **Time-Based Simulation**: Simulate yield over configurable time periods
+4. **APY Target**: Generate yield to achieve specific APY targets
+5. **Realistic Market Conditions**: Simulate yield based on real market data
+
+## Summary
+
+The Yield Simulator Agent is a **simple, single-purpose agent** designed for testing and development:
+
+- **Single tool**: `yield_generator` - accrues interest in mock pool
+- **Mock environment**: Works with `MOCK_AAVE_POOL_ADDRESS`
+- **Testing utility**: Enables testing of yield-dependent features
+- **Not for production**: Real yield comes from actual DeFi protocols
+
+Despite its simplicity, it plays an important role in the development and testing workflow of the MetaVault AI system.

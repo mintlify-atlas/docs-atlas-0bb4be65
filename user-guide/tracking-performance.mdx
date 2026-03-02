@@ -1,0 +1,378 @@
+---
+title: Tracking Performance
+description: Monitor your vault performance and understand the dashboard metrics
+---
+
+MetaVault AI provides a comprehensive dashboard to track your investment performance, vault statistics, and active strategies in real-time.
+
+## Dashboard Overview
+
+Once your wallet is connected, the dashboard displays five key stat cards, quick actions, active strategies, and a list of all depositors.
+
+![Dashboard shows stat cards, quick actions, strategy cards, and depositors list](/images/user-guide/dashboard-overview.png)
+
+<Note>
+  All metrics update automatically in real-time as events occur on the blockchain. No manual refresh needed.
+</Note>
+
+## Key Metrics
+
+### Vault-Wide Statistics
+
+These metrics show the overall vault state:
+
+<CardGroup cols={2}>
+  <Card title="IDLE Assets" icon="dollar-sign" color="#3B82F6">
+    LINK tokens held in the vault but not yet deployed to strategies.
+    
+    - Represents uninvested liquidity
+    - Available for immediate withdrawals
+    - Updates when deposits or withdrawals occur
+  </Card>
+  
+  <Card title="Total Managed" icon="chart-line" color="#10B981">
+    Total LINK deployed across all active strategies.
+    
+    - Shows total vault assets under management
+    - Increases as funds are allocated to strategies
+    - Grows as strategies earn yield
+  </Card>
+  
+  <Card title="MetaVault APY" icon="percent" color="#06B6D4">
+    Current annual percentage yield of the vault.
+    
+    - **LIVE APY** calculated from recent performance
+    - Updates as yield is harvested
+    - Shows "--" if data unavailable
+    - Can reach 1000%+ APY during high-performance periods
+  </Card>
+</CardGroup>
+
+### Your Personal Statistics
+
+These metrics are specific to your position:
+
+<CardGroup cols={2}>
+  <Card title="Your Shares" icon="chart-pie" color="#A855F7">
+    The number of vault shares you own.
+    
+    - Represents your proportional ownership
+    - Increases when you deposit
+    - Decreases when you withdraw
+    - Shares are ERC-20 tokens
+  </Card>
+  
+  <Card title="Your Assets" icon="wallet" color="#F59E0B">
+    Current LINK value of your shares.
+    
+    - Includes deposited funds + earned yield
+    - Increases as the vault generates returns
+    - Shows your total redeemable balance
+    - Displayed with growth percentage below
+  </Card>
+</CardGroup>
+
+### Growth Percentage
+
+Your personal return since your first deposit:
+
+- **Green** with "+" sign: Positive returns
+- **Red** with "-" sign: Negative returns (rare in normal operation)
+- Format: `+12.34%` or `-2.10%`
+- Calculated as: `(Current Assets - Initial Deposit) / Initial Deposit * 100`
+
+**Example:**
+- Initial deposit: 1,000 LINK
+- Current assets: 1,123 LINK
+- Growth: **+12.30%**
+
+## Active Strategies
+
+The dashboard displays all strategies actively managing your funds:
+
+![Strategy cards show allocation, target percentages, and deviations](/images/user-guide/strategy-cards.png)
+
+### Strategy Card Components
+
+Each strategy card displays:
+
+<ResponseField name="Strategy Name" type="string">
+  The name of the DeFi protocol (e.g., "Aave Strategy", "Leverage Strategy")
+</ResponseField>
+
+<ResponseField name="Contract Address" type="address">
+  The strategy's smart contract address (shortened format). Click the copy icon to copy the full address.
+</ResponseField>
+
+<ResponseField name="Balance" type="number">
+  Amount of LINK currently deployed in this strategy.
+</ResponseField>
+
+<ResponseField name="Target Allocation" type="percentage">
+  The AI's target allocation percentage for this strategy.
+</ResponseField>
+
+<ResponseField name="Actual Allocation" type="percentage">
+  Current allocation percentage with color-coded status:
+  - **Green**: Within 5% of target (healthy)
+  - **Yellow**: More than 5% deviation from target (needs rebalancing)
+</ResponseField>
+
+<ResponseField name="Progress Bar" type="visual">
+  Visual representation of actual allocation percentage.
+</ResponseField>
+
+<ResponseField name="Deviation Warning" type="optional">
+  Shows if allocation is off-target by more than 5%, e.g., "+7.23% deviation from target"
+</ResponseField>
+
+### Understanding Strategy Allocations
+
+The AI agent automatically rebalances strategies to maintain target allocations:
+
+- **Target**: Optimal allocation determined by AI analysis
+- **Actual**: Current allocation based on deposited funds
+- **Deviation**: Difference between target and actual
+
+**Example:**
+```
+Aave Strategy
+- Balance: 5,432 LINK
+- Target: 60.0%
+- Actual: 54.32%
+- Deviation: -5.68% (yellow warning)
+```
+
+The AI will rebalance during the next cycle to move actual closer to target.
+
+## Depositors List
+
+The right sidebar shows all current vault depositors:
+
+![Depositors list displays addresses and share balances](/images/user-guide/depositors-list.png)
+
+### List Features
+
+- Shows wallet addresses (shortened format)
+- Displays share balance for each depositor
+- Updates in real-time as deposits and withdrawals occur
+- Sorted by share amount (largest holders first)
+- Limited to top depositors for performance
+
+<Info>
+  Your address is not highlighted differently - all depositors are shown equally for privacy.
+</Info>
+
+## Quick Actions Panel
+
+Access common actions directly from the dashboard:
+
+<CardGroup cols={2}>
+  <Card title="Deposit" icon="arrow-down" color="#3B82F6">
+    Opens the deposit modal to add more LINK to the vault.
+    
+    Large blue button with gradient background.
+  </Card>
+  
+  <Card title="Withdraw" icon="arrow-up" color="#6B7280">
+    Opens the withdraw modal to redeem your shares for LINK.
+    
+    Outlined button with subtle background.
+  </Card>
+  
+  <Card title="Mint Mock LINK" icon="dollar-sign" color="#F59E0B">
+    Mints 100 test LINK tokens to your wallet (testnet only).
+    
+    Yellow button for getting test tokens.
+  </Card>
+  
+  <Card title="Copy LINK Address" icon="copy" color="#3B82F6">
+    Copies the LINK token contract address to clipboard.
+    
+    Useful for adding LINK to your wallet manually.
+  </Card>
+</CardGroup>
+
+## Real-Time Updates
+
+The dashboard uses blockchain event listeners to update automatically when:
+
+<Steps>
+  <Step title="Deposit Events">
+    Any user deposits funds into the vault.
+    
+    Updates:
+    - Total Managed
+    - IDLE Assets
+    - Your Shares (if you deposited)
+    - Your Assets
+    - Depositors list
+  </Step>
+
+  <Step title="Withdraw Events">
+    Any user withdraws funds from the vault.
+    
+    Updates:
+    - Total Managed
+    - Your Shares (if you withdrew)
+    - Your Assets
+    - Depositors list
+  </Step>
+
+  <Step title="Rebalanced Events">
+    The AI agent rebalances strategy allocations.
+    
+    Updates:
+    - Strategy actual allocations
+    - Deviation warnings
+    - Total Managed distribution
+  </Step>
+
+  <Step title="Harvested Events">
+    Yield is harvested from DeFi protocols.
+    
+    Updates:
+    - Your Assets (increases from yield)
+    - Total Managed
+    - Growth percentage
+    - MetaVault APY
+  </Step>
+</Steps>
+
+<Note>
+  Most metrics refresh every 3-5 seconds automatically. You don't need to reload the page.
+</Note>
+
+## Monitoring Your Performance
+
+### Daily Check
+
+1. **Growth Percentage**: Quick view of your returns
+2. **Your Assets**: See your current vault balance
+3. **MetaVault APY**: Check current yield rate
+
+### Detailed Analysis
+
+1. **Strategy Performance**: Which strategies are performing best?
+2. **Allocation Status**: Are strategies properly balanced?
+3. **Depositor Activity**: Is the vault growing or shrinking?
+
+### Red Flags to Watch
+
+<Warning>
+  **Potential Issues:**
+  
+  - Negative growth percentage for extended periods
+  - Strategies with large deviations (>10%) for a long time
+  - APY dropping to near 0%
+  - Your assets value decreasing
+  
+  These may indicate market conditions, strategy issues, or rebalancing needs. The AI agent should automatically address allocation issues.
+</Warning>
+
+## Understanding Share Price
+
+Your share price determines how much LINK your shares are worth:
+
+**Formula:**
+```
+Share Price = Total Vault Assets / Total Shares
+```
+
+**Example:**
+- Total vault assets: 11,000 LINK
+- Total shares issued: 10,000
+- Share price: 1.1 LINK per share
+
+If you own 100 shares:
+- Your assets = 100 shares × 1.1 = 110 LINK
+- If you deposited 100 LINK initially, you've earned 10% return
+
+### Share Price Changes
+
+Share price increases when:
+- Strategies earn yield
+- Harvest events add profits to the vault
+- Fees accumulate to vault assets
+
+Share price rarely decreases (would require strategy losses).
+
+## Exporting Performance Data
+
+Currently, MetaVault AI doesn't have built-in export features. To track performance externally:
+
+1. Note your starting values:
+   - Initial deposit amount
+   - Starting share count
+   - Deposit date
+
+2. Periodically record:
+   - Current share price
+   - Your Assets value
+   - Growth percentage
+   - Date
+
+3. Calculate returns:
+   - Total return = (Current Assets - Initial Deposit) / Initial Deposit
+   - Time-weighted return = Adjust for deposit/withdrawal timing
+
+<Tip>
+  Take screenshots of the dashboard at regular intervals to maintain a performance record.
+</Tip>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Stats showing zero or '--'">
+    Possible causes:
+    - Wallet not connected
+    - Contract addresses not configured
+    - No deposits made yet
+    - Network connectivity issues
+    
+    Verify your wallet connection and refresh the page.
+  </Accordion>
+
+  <Accordion title="Growth percentage seems incorrect">
+    The growth percentage is calculated from on-chain data:
+    - Based on your total deposits vs. current assets
+    - Includes all deposits and withdrawals
+    - Updates in real-time
+    
+    If you've made multiple deposits at different times, the growth % reflects your average return across all deposits.
+  </Accordion>
+
+  <Accordion title="Strategy allocations showing yellow warnings">
+    Yellow warnings indicate allocation deviations >5%:
+    - This is normal during active periods
+    - The AI rebalances periodically
+    - Wait for the next rebalance event
+    
+    If deviations persist >10% for days, there may be liquidity constraints.
+  </Accordion>
+
+  <Accordion title="APY shows a very high number">
+    High APY (e.g., 1887%) can occur:
+    - During short measurement periods with strong performance
+    - From successful leveraged strategy gains
+    - When total vault assets are small
+    
+    This is calculated from live data and represents recent annualized returns, not guaranteed future performance.
+  </Accordion>
+
+  <Accordion title="Real-time updates not working">
+    If stats aren't updating automatically:
+    1. Check your internet connection
+    2. Verify you're on the correct network (Sepolia)
+    3. Try refreshing the page
+    4. Check browser console for errors
+    
+    The dashboard uses WebSocket connections to blockchain nodes for real-time data.
+  </Accordion>
+</AccordionGroup>
+
+## What's Next?
+
+- [Withdraw funds](/user-guide/withdrawing-funds) when you want to exit
+- [Use the chat agent](/user-guide/chat-agent) to query your balance via conversational interface
+- Learn about [depositing more funds](/user-guide/depositing-funds) to increase your position

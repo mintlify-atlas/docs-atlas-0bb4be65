@@ -1,0 +1,112 @@
+---
+title: Installation
+description: Install and set up MetaVault AI on your local machine
+---
+
+## Prerequisites
+
+Before installing MetaVault AI, ensure you have the following installed on your system:
+
+- **Node.js** v18 or higher ([Download Node.js](https://nodejs.org/))
+- **pnpm** package manager ([Install pnpm](https://pnpm.io/installation))
+- **MetaMask** or another Web3 wallet ([Get MetaMask](https://metamask.io/))
+- **Git** for cloning the repository
+
+## Installation
+
+<Steps>
+  <Step title="Clone the Repository">
+    Clone the MetaVault AI repository to your local machine:
+
+    ```bash
+    git clone <repository-url>
+    cd defi-portfolio
+    ```
+  </Step>
+
+  <Step title="Install Dependencies">
+    MetaVault AI is a monorepo that uses pnpm workspaces. Install all dependencies for all packages with a single command:
+
+    <CodeGroup>
+      ```bash pnpm
+      pnpm install
+      ```
+
+      ```bash npm
+      npm install
+      ```
+
+      ```bash yarn
+      yarn install
+      ```
+    </CodeGroup>
+
+    This will install dependencies for:
+    - `packages/contracts` - Smart contracts (Hardhat, Solidity)
+    - `packages/frontend` - Next.js web application
+    - `packages/agents` - AI agents built with ADK-TS
+  </Step>
+
+  <Step title="Verify Installation">
+    Verify that all packages are installed correctly:
+
+    ```bash
+    pnpm --version
+    ```
+
+    Expected output: `10.18.3` or higher
+  </Step>
+</Steps>
+
+## Package Structure
+
+MetaVault AI is organized as a monorepo with the following packages:
+
+<CardGroup cols={3}>
+  <Card title="Contracts" icon="file-contract">
+    **packages/contracts**
+    
+    Hardhat project containing smart contracts for the vault and strategies.
+    
+    Key dependencies:
+    - hardhat ^2.26.5
+    - ethers ^6.15.0
+    - @openzeppelin/contracts ^5.4.0
+  </Card>
+
+  <Card title="Frontend" icon="browser">
+    **packages/frontend**
+    
+    Next.js 14 web application for user interaction with the vault.
+    
+    Key dependencies:
+    - next ^14.2.0
+    - react ^18.3.0
+    - wagmi ^2.7.0
+    - viem ^2.9.0
+  </Card>
+
+  <Card title="Agents" icon="robot">
+    **packages/agents**
+    
+    AI agents built with ADK-TS that monitor and manage vault strategies.
+    
+    Key dependencies:
+    - @iqai/adk ^0.5.7
+    - express ^5.2.1
+    - ethers ^6.15.0
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+After installation, proceed to:
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/getting-started/quick-start">
+    Get MetaVault AI running locally in minutes
+  </Card>
+  <Card title="Configuration" icon="gear" href="/getting-started/configuration">
+    Configure environment variables and settings
+  </Card>
+</CardGroup>

@@ -1,0 +1,454 @@
+---
+title: 'StrategyRouter Contract'
+description: 'Manages multiple yield strategies with automatic rebalancing and harvesting'
+---
+
+## Overview
+
+The `StrategyRouter` contract orchestrates multiple yield strategies, handling allocation rebalancing, harvest operations, and strategy-level fund management. It acts as the intermediary between the Vault and individual Strategy contracts.
+
+**Inherits**: `Ownable`
+
+## State Variables
+
+<ResponseField name="vault" type="IVault" required>
+  Immutable. Reference to the Vault contract that holds user funds.
+</ResponseField>
+
+<ResponseField name="strategies" type="address[]" required>
+  Dynamic array of active strategy contract addresses.
+</ResponseField>
+
+<ResponseField name="targetBps" type="mapping(address => uint256)" required>
+  Target allocation for each strategy in basis points. Sum must equal 10000 (100%).
+</ResponseField>
+
+## Events
+
+### StrategiesUpdated
+
+```solidity
+event StrategiesUpdated()
+```
+
+Emitted when the strategy list and allocations are updated.
+
+### Rebalanced
+
+```solidity
+event Rebalanced(uint256 totalManaged)
+```
+
+<ParamField path="totalManaged" type="uint256">
+  Total assets under management after rebalancing
+</ParamField>
+
+### Harvested
+
+```solidity
+event Harvested(address indexed strat, uint256 profit)
+```
+
+<ParamField path="strat" type="address">
+  Strategy address that was harvested
+</ParamField>
+
+<ParamField path="profit" type="uint256">
+  Amount of profit harvested from the strategy
+</ParamField>
+
+### WithdrawnFromStrategies
+
+```solidity
+event WithdrawnFromStrategies(uint256 requested, uint256 pulled)
+```
+
+<ParamField path="requested" type="uint256">
+  Amount requested by vault
+</ParamField>
+
+<ParamField path="pulled" type="uint256">
+  Actual amount withdrawn from strategies
+</ParamField>
+
+### DeleverageTriggered
+
+```solidity
+event DeleverageTriggered(address indexed strat, uint256 maxLoops)
+```
+
+<ParamField path="strat" type="address">
+  Strategy being deleveraged
+</ParamField>
+
+<ParamField path="maxLoops" type="uint256">
+  Maximum deleverage iterations allowed
+</ParamField>
+
+### StrategyWithdrawFailed
+
+```solidity
+event StrategyWithdrawFailed(address indexed strat, string reason)
+```
+
+<ParamField path="strat" type="address">
+  Strategy that failed
+</ParamField>
+
+<ParamField path="reason" type="string">
+  Error message describing the failure
+</ParamField>
+
+## Constructor
+
+```solidity
+constructor(address _vault, address _owner) Ownable(_owner)
+```
+
+<ParamField path="_vault" type="address" required>
+  Address of the Vault contract
+</ParamField>
+
+<ParamField path="_owner" type="address" required>
+  Address that will own this router contract
+</ParamField>
+
+## Strategy Management
+
+### setStrategies
+
+```solidity
+function setStrategies(
+    address[] calldata _strats,
+    uint256[] calldata _bps
+) external onlyOwner
+```
+
+Set or update the list of strategies and their target allocations.
+
+<ParamField path="_strats" type="address[]" required>
+  Array of strategy contract addresses
+</ParamField>
+
+<ParamField path="_bps" type="uint256[]" required>
+  Array of target allocations in basis points (must sum to 10000)
+</ParamField>
+
+**Requirements**:
+- Arrays must have same length
+- No zero addresses allowed
+- Sum of `_bps` must equal 10000 (100%)
+
+**Example**:
+
+```solidity
+address[] memory strats = new address[](2);
+strats[0] = address(strategyAave);
+strats[1] = address(strategyAaveLeverage);
+
+uint256[] memory allocations = new uint256[](2);
+allocations[0] = 6000; // 60% to Aave
+allocations[1] = 4000; // 40% to AaveLeverage
+
+router.setStrategies(strats, allocations);
+```
+
+### getStrategies
+
+```solidity
+function getStrategies() external view returns (address[] memory)
+```
+
+Get the list of active strategy addresses.
+
+<ResponseField name="strategies" type="address[]">
+  Array of strategy contract addresses
+</ResponseField>
+
+### getStrategyStats
+
+```solidity
+function getStrategyStats(address strat)
+    external view
+    returns (
+        uint256 balance,
+        uint256 target,
+        uint256 actualPct
+    )
+```
+
+Get detailed statistics for a specific strategy.
+
+<ParamField path="strat" type="address" required>
+  Strategy address to query
+</ParamField>
+
+<ResponseField name="balance" type="uint256">
+  Current balance held by the strategy
+</ResponseField>
+
+<ResponseField name="target" type="uint256">
+  Target allocation in basis points
+</ResponseField>
+
+<ResponseField name="actualPct" type="uint256">
+  Actual allocation percentage in basis points
+</ResponseField>
+
+### getPortfolioState
+
+```solidity
+function getPortfolioState()
+    external view
+    returns (
+        address[] memory strats,
+        uint256[] memory balances,
+        uint256[] memory targets
+    )
+```
+
+Get complete portfolio state for all strategies.
+
+<ResponseField name="strats" type="address[]">
+  Array of strategy addresses
+</ResponseField>
+
+<ResponseField name="balances" type="uint256[]">
+  Current balance in each strategy
+</ResponseField>
+
+<ResponseField name="targets" type="uint256[]">
+  Target allocation for each strategy in basis points
+</ResponseField>
+
+## Fund Management
+
+### moveFundsToStrategy
+
+```solidity
+function moveFundsToStrategy(address strat, uint256 amount) external onlyOwner
+```
+
+Manually move funds from vault to a specific strategy and invest them.
+
+<ParamField path="strat" type="address" required>
+  Strategy to receive funds
+</ParamField>
+
+<ParamField path="amount" type="uint256" required>
+  Amount of assets to move
+</ParamField>
+
+**Example**:
+
+```solidity
+// Move 10000 USDC to Aave strategy
+router.moveFundsToStrategy(address(strategyAave), 10000e6);
+```
+
+### moveAllToStrategy
+
+```solidity
+function moveAllToStrategy(address strat) external onlyOwner
+```
+
+Move all available vault assets to a specific strategy.
+
+<ParamField path="strat" type="address" required>
+  Strategy to receive all funds
+</ParamField>
+
+### withdrawFromStrategies
+
+```solidity
+function withdrawFromStrategies(uint256 amount) external returns (uint256)
+```
+
+Withdraw assets from strategies to satisfy vault withdrawal requests. Called by Vault only.
+
+<ParamField path="amount" type="uint256" required>
+  Amount needed by the vault
+</ParamField>
+
+<ResponseField name="pulled" type="uint256">
+  Actual amount withdrawn from strategies
+</ResponseField>
+
+**Requirements**:
+- Only callable by the Vault contract
+- Will iterate through strategies until requested amount is satisfied
+- Reverts if insufficient liquidity across all strategies
+
+**Behavior**:
+1. Iterates through strategies in order
+2. Calls `withdrawToVault()` on each strategy
+3. Measures actual amount received (handles strategies that return different amounts)
+4. Continues until requested amount is satisfied or strategies exhausted
+
+## Rebalancing
+
+### rebalance
+
+```solidity
+function rebalance() external onlyOwner
+```
+
+Rebalance all strategies to match target allocations.
+
+**Process**:
+1. Calculate current total managed assets
+2. Withdraw excess from overweight strategies
+3. Recalculate total after withdrawals
+4. Deploy funds to underweight strategies
+
+**Error Handling**:
+- Continues rebalancing other strategies if one fails
+- Emits `StrategyWithdrawFailed` event for failed operations
+
+**Example**:
+
+```solidity
+// After market movements, rebalance to target allocations
+router.rebalance();
+```
+
+## Harvesting
+
+### harvestAll
+
+```solidity
+function harvestAll() external onlyOwner
+```
+
+Harvest profits from all strategies and route to vault.
+
+**Process**:
+1. Iterates through all strategies
+2. Calls `harvest()` on each strategy
+3. Measures profit returned to vault
+4. Calls `vault.handleHarvestProfit()` to apply performance fees
+
+**Error Handling**:
+- Continues harvesting other strategies if one fails
+- Emits events for both successes and failures
+
+**Example**:
+
+```solidity
+// Daily harvest operation
+router.harvestAll();
+// Profit automatically sent to vault and fees deducted
+```
+
+## Risk Management
+
+### triggerDeleverage
+
+```solidity
+function triggerDeleverage(address strat, uint256 maxLoops) external onlyOwner
+```
+
+Manually trigger deleveraging on a leveraged strategy (e.g., during high volatility).
+
+<ParamField path="strat" type="address" required>
+  Address of the strategy to deleverage
+</ParamField>
+
+<ParamField path="maxLoops" type="uint256" required>
+  Maximum number of deleverage iterations (gas limit protection)
+</ParamField>
+
+**Use Cases**:
+- Market volatility increases liquidation risk
+- Preparing to withdraw large amounts from leveraged strategies
+- Emergency risk reduction
+
+**Example**:
+
+```solidity
+// Deleverage the Aave leverage strategy in up to 5 loops
+router.triggerDeleverage(address(strategyAaveLeverage), 5);
+```
+
+## Integration Example
+
+```solidity
+// 1. Deploy router
+StrategyRouter router = new StrategyRouter(
+    address(vault),
+    owner
+);
+
+// 2. Connect vault to router
+vault.setRouter(address(router));
+
+// 3. Setup strategies
+address[] memory strats = new address[](3);
+strats[0] = address(strategyAave);
+strats[1] = address(strategyAaveLeverage);
+strats[2] = address(strategyCompound);
+
+uint256[] memory allocations = new uint256[](3);
+allocations[0] = 5000; // 50% Aave
+allocations[1] = 3000; // 30% Aave Leverage
+allocations[2] = 2000; // 20% Compound
+
+router.setStrategies(strats, allocations);
+
+// 4. Deploy funds
+router.moveFundsToStrategy(strats[0], 50000e6);
+router.moveFundsToStrategy(strats[1], 30000e6);
+router.moveFundsToStrategy(strats[2], 20000e6);
+
+// 5. Regular operations
+router.harvestAll();     // Collect profits
+router.rebalance();      // Maintain target allocations
+
+// 6. Check portfolio state
+(address[] memory s, uint256[] memory balances, uint256[] memory targets) = 
+    router.getPortfolioState();
+
+for (uint i = 0; i < s.length; i++) {
+    console.log("Strategy:", s[i]);
+    console.log("Balance:", balances[i]);
+    console.log("Target:", targets[i]);
+}
+```
+
+## AI Integration
+
+The StrategyRouter is designed to be controlled by MetaVault AI agents:
+
+```solidity
+// AI agent monitors market conditions
+if (marketVolatility > threshold) {
+    // Reduce leverage exposure
+    router.triggerDeleverage(leveragedStrategy, 3);
+    
+    // Rebalance to safer allocations
+    router.setStrategies(
+        [safeStrategy, moderateStrategy],
+        [8000, 2000] // 80% safe, 20% moderate
+    );
+    router.rebalance();
+}
+
+// AI determines optimal harvest timing
+if (estimatedGas < gasThreshold && estimatedProfit > minProfit) {
+    router.harvestAll();
+}
+```
+
+## Security Considerations
+
+1. **Owner Control**: Owner has significant control. Use multisig or timelock.
+2. **Strategy Failures**: Individual strategy failures don't brick the router.
+3. **Rebalance Ordering**: Strategies are processed in array order - consider liquidity.
+4. **Gas Limits**: Large strategy arrays may hit gas limits in `harvestAll()` or `rebalance()`.
+
+## See Also
+
+- [Vault](/api/contracts/vault) - Main vault contract
+- [IStrategy Interface](/api/contracts/strategy-router#istrategy-interface) - Strategy interface specification
+- [StrategyAave](/api/contracts/strategy-aave) - Basic Aave strategy
+- [StrategyAaveLeverage](/api/contracts/strategy-aave-leverage) - Leveraged strategy

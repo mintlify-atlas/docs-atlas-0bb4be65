@@ -1,0 +1,223 @@
+---
+title: Depositing Funds
+description: How to deposit LINK tokens into MetaVault AI
+---
+
+Depositing funds into MetaVault AI allows you to participate in AI-powered yield generation strategies. Your LINK tokens are managed by smart contracts and allocated across multiple DeFi protocols to maximize returns.
+
+## Prerequisites
+
+<Check>
+  Your wallet must be connected. See [Connecting Your Wallet](/user-guide/connecting-wallet) first.
+</Check>
+
+<Check>
+  You need LINK tokens in your wallet. You can mint test LINK tokens from the dashboard.
+</Check>
+
+<Check>
+  You need Sepolia ETH for gas fees.
+</Check>
+
+## Getting Test LINK Tokens
+
+Before depositing, you'll need LINK tokens. MetaVault AI provides a convenient way to mint test LINK tokens:
+
+<Steps>
+  <Step title="Navigate to Quick Actions">
+    In the dashboard, locate the **Quick Actions** card below the stats grid.
+  </Step>
+
+  <Step title="Click 'Mint Mock LINK'">
+    Click the **"Mint Mock LINK"** button with the yellow background. This will mint 100 LINK tokens to your wallet.
+    
+    ![Mint Mock LINK button appears with dollar sign icon and yellow background](/images/user-guide/mint-link-button.png)
+  </Step>
+
+  <Step title="Approve in Wallet">
+    Your wallet will prompt you to approve the mint transaction. Review and confirm the transaction.
+  </Step>
+
+  <Step title="Wait for Confirmation">
+    The button will show "Minting..." while the transaction processes. Once complete, you'll see a green success message.
+    
+    Your LINK balance will update automatically in the top navigation bar.
+  </Step>
+</Steps>
+
+<Tip>
+  You can also copy the LINK token address using the **"Copy LINK Address"** button to add the token to your wallet or get LINK from other sources.
+</Tip>
+
+## Depositing LINK Tokens
+
+<Steps>
+  <Step title="Open the Deposit Modal">
+    In the dashboard, click the blue **"Deposit"** button in the Quick Actions section.
+    
+    ![Deposit button with blue gradient background in Quick Actions card](/images/user-guide/deposit-button.png)
+    
+    The Deposit modal will open, displaying:
+    - Amount input field
+    - Your current LINK balance
+    - Approve & Deposit / Deposit button
+  </Step>
+
+  <Step title="Enter Deposit Amount">
+    Type the amount of LINK tokens you want to deposit in the input field.
+    
+    ![Deposit modal shows amount input field with your LINK balance displayed below](/images/user-guide/deposit-modal-input.png)
+    
+    Your available balance is displayed below the input field for reference.
+    
+    <Warning>
+      Make sure you don't exceed your available LINK balance. The interface will show an "Insufficient balance" error if you do.
+    </Warning>
+  </Step>
+
+  <Step title="Approve Token Spending (First Time Only)">
+    For your first deposit, the vault contract needs permission to spend your LINK tokens. Click **"Approve & Deposit"**.
+    
+    This triggers two transactions:
+    1. **Approval transaction**: Grants the vault permission to spend LINK
+    2. **Deposit transaction**: Automatically executes after approval
+    
+    ![Button shows 'Approve & Deposit' for first-time deposits](/images/user-guide/approve-deposit-button.png)
+    
+    <Note>
+      After the first approval, future deposits will only require one transaction and the button will show **"Deposit"** instead.
+    </Note>
+  </Step>
+
+  <Step title="Confirm in Wallet">
+    Your wallet will prompt you to:
+    1. First, approve the token spending limit
+    2. Then, confirm the deposit transaction
+    
+    Review each transaction carefully and approve both.
+  </Step>
+
+  <Step title="Wait for Confirmation">
+    The button will update to show:
+    - **"Approving..."** during token approval
+    - **"Depositing..."** during the deposit transaction
+    
+    ![Loading state shows 'Depositing...' on the button](/images/user-guide/deposit-loading.png)
+    
+    Wait for both transactions to complete. This typically takes 10-30 seconds on Sepolia.
+  </Step>
+
+  <Step title="Verify Your Deposit">
+    Once successful:
+    - The modal closes automatically
+    - Your dashboard stats update in real-time:
+      - **Your Shares** increases by your deposited amount
+      - **Your Assets** reflects your vault balance
+      - **Total Managed** increases for the entire vault
+    
+    ![Updated dashboard stats show increased shares and assets](/images/user-guide/deposit-success-stats.png)
+  </Step>
+</Steps>
+
+## Understanding Your Shares
+
+When you deposit LINK tokens:
+
+- You receive **vault shares** representing your ownership percentage
+- Shares are ERC-20 tokens that track your proportional claim to vault assets
+- As the vault generates yield, your shares become worth more LINK
+- The share-to-asset ratio changes as the vault earns returns
+
+**Example:**
+- You deposit 100 LINK
+- You receive 100 shares
+- Vault earns 10% return
+- Your 100 shares are now worth 110 LINK
+
+## Real-Time Updates
+
+MetaVault AI uses real-time event listeners to update your dashboard instantly when:
+
+- Your deposit is confirmed
+- Other users deposit or withdraw
+- The AI rebalances strategies
+- Yield is harvested from protocols
+
+You don't need to refresh the page - all stats update automatically.
+
+## Dashboard Stats Explained
+
+After depositing, monitor these key metrics:
+
+<CardGroup cols={2}>
+  <Card title="Your Shares" icon="chart-pie">
+    The number of vault shares you own. This represents your proportional ownership of the vault.
+  </Card>
+  
+  <Card title="Your Assets" icon="wallet">
+    The current LINK value of your shares. This amount includes your deposited funds plus earned yield.
+  </Card>
+  
+  <Card title="Growth Percentage" icon="arrow-trend-up">
+    Your personal return percentage since your first deposit. Shown in green for positive returns.
+  </Card>
+  
+  <Card title="Total Managed" icon="chart-line">
+    Total LINK deployed across all yield strategies. Your funds contribute to this pool.
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Transaction failed - Insufficient balance">
+    This means you're trying to deposit more LINK than you have. Check your LINK balance in:
+    - The deposit modal (shows current balance)
+    - The top navigation bar
+    - Your wallet
+    
+    Reduce your deposit amount or mint more test LINK.
+  </Accordion>
+
+  <Accordion title="Approval transaction succeeded but deposit didn't start">
+    The deposit should trigger automatically after approval. If it doesn't:
+    1. Close and reopen the deposit modal
+    2. Try depositing again (you won't need to approve again)
+    3. Check your wallet for any pending transaction prompts
+  </Accordion>
+
+  <Accordion title="Transaction is taking a long time">
+    Sepolia testnet can have variable block times:
+    - Wait up to 2-3 minutes for confirmation
+    - Check the transaction status in your wallet
+    - Look up the transaction hash on [Sepolia Etherscan](https://sepolia.etherscan.io/)
+    
+    Don't submit the transaction again or you may deposit twice.
+  </Accordion>
+
+  <Accordion title="Stats aren't updating after deposit">
+    The dashboard uses real-time event listeners, but if stats don't update:
+    1. Wait 10-15 seconds for block confirmation
+    2. Check that the transaction completed successfully
+    3. Refresh the page if needed
+    
+    The automatic refresh interval is 3 seconds for most stats.
+  </Accordion>
+
+  <Accordion title="I rejected the transaction by mistake">
+    No problem! Simply:
+    1. Click the Deposit button again
+    2. Enter the same or different amount
+    3. Approve the transaction this time
+    
+    No funds were transferred if you rejected the transaction.
+  </Accordion>
+</AccordionGroup>
+
+## What's Next?
+
+After depositing:
+
+- [Track your performance](/user-guide/tracking-performance) on the dashboard
+- [Withdraw funds](/user-guide/withdrawing-funds) when you want to exit
+- [Chat with the AI agent](/user-guide/chat-agent) to check your balance or make deposits via chat

@@ -1,0 +1,404 @@
+---
+title: Configuration
+description: Configure environment variables and settings for MetaVault AI
+---
+
+## Overview
+
+MetaVault AI requires configuration across three packages. Each package has its own `.env` file with specific settings.
+
+## Contracts Configuration
+
+The contracts package requires minimal configuration for deployment.
+
+<Steps>
+  <Step title="Create Environment File">
+    ```bash
+    cd packages/contracts
+    cp .env.example .env
+    ```
+  </Step>
+
+  <Step title="Configure Variables">
+    Edit `packages/contracts/.env`:
+
+    ```env
+    # Deployer Wallet Private Key (for local development)
+    PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+
+    # INFURA API Key (for testnet/mainnet deployment)
+    INFURA_KEY=your_infura_api_key
+    ```
+
+    <Warning>
+      The private key shown above is the first Hardhat test account. Never use it on mainnet or with real funds.
+    </Warning>
+  </Step>
+</Steps>
+
+### Configuration Reference
+
+<ParamField path="PRIVATE_KEY" type="string" required>
+  Private key of the wallet that will deploy contracts.
+  
+  For local development, use one of Hardhat's test account private keys.
+</ParamField>
+
+<ParamField path="INFURA_KEY" type="string">
+  Your Infura API key for connecting to Ethereum networks.
+  
+  Only required for testnet or mainnet deployments. Get one at [infura.io](https://infura.io).
+</ParamField>
+
+## AI Agents Configuration
+
+The agents package requires the most configuration, including API keys and contract addresses.
+
+<Steps>
+  <Step title="Create Environment File">
+    ```bash
+    cd packages/agents/defi-portfolio
+    cp .env.example .env
+    ```
+  </Step>
+
+  <Step title="Configure Core Settings">
+    Edit `packages/agents/defi-portfolio/.env`:
+
+    ```env
+    # Debug Mode
+    ADK_DEBUG="false"
+
+    # OpenRouter API Key (Required)
+    OPEN_ROUTER_KEY=your_openrouter_api_key
+
+    # LLM Model
+    LLM_MODEL=anthropic/claude-3.5-sonnet
+
+    # Server Ports
+    PORT=3001
+    CHAT_PORT=3002
+    ```
+
+    <Note>
+      Get your OpenRouter API key at [openrouter.ai](https://openrouter.ai)
+    </Note>
+  </Step>
+
+  <Step title="Configure Blockchain Connection">
+    Add blockchain settings:
+
+    ```env
+    # RPC URL
+    RPC_URL=http://127.0.0.1:8545
+
+    # Vault Deployer Wallet Private Key
+    PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+    ```
+  </Step>
+
+  <Step title="Configure Contract Addresses">
+    Add the contract addresses from your deployment:
+
+    ```env
+    # CORE CONTRACTS
+    VAULT_ADDRESS=0x5FbDB2315678afecb367f032d93F642f64180aa3
+    ROUTER_ADDRESS=0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512
+    STRATEGY_LEVERAGE_ADDRESS=0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0
+    STRATEGY_AAVE_ADDRESS=0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9
+
+    # Mock TOKEN
+    LINK_ADDRESS=0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+
+    # Mock AAVE POOL
+    MOCK_AAVE_POOL_ADDRESS=0x0165878A594ca255338adfa4d48449f69242Eb8F
+    ```
+
+    <Warning>
+      Replace these example addresses with the actual addresses from your deployment output.
+    </Warning>
+  </Step>
+
+  <Step title="Configure Telegram (Optional)">
+    For Telegram notifications:
+
+    ```env
+    # Telegram Bot Token & Chat/Channel ID
+    TELEGRAM_BOT_TOKEN=your_bot_token
+    TELEGRAM_CHANNEL_ID=your_channel_id
+    ```
+
+    <Tip>
+      Create a Telegram bot via [@BotFather](https://t.me/botfather) to get your bot token.
+    </Tip>
+  </Step>
+</Steps>
+
+### Configuration Reference
+
+<ParamField path="ADK_DEBUG" type="string" default="false">
+  Enable debug logging for the ADK framework.
+  
+  Set to `"true"` to see detailed framework logs.
+</ParamField>
+
+<ParamField path="OPEN_ROUTER_KEY" type="string" required>
+  Your OpenRouter API key for AI model access.
+  
+  The agents use OpenRouter to access LLM models like Claude.
+</ParamField>
+
+<ParamField path="LLM_MODEL" type="string" default="anthropic/claude-3.5-sonnet">
+  The LLM model to use for AI agents.
+  
+  See [OpenRouter models](https://openrouter.ai/models) for available options.
+</ParamField>
+
+<ParamField path="PORT" type="number" default="3001">
+  Port for the main agent server.
+</ParamField>
+
+<ParamField path="CHAT_PORT" type="number" default="3002">
+  Port for the chat agent server.
+</ParamField>
+
+<ParamField path="RPC_URL" type="string" required>
+  Ethereum RPC endpoint URL.
+  
+  Use `http://127.0.0.1:8545` for local Hardhat node.
+</ParamField>
+
+<ParamField path="PRIVATE_KEY" type="string" required>
+  Private key for the agent's wallet to sign transactions.
+</ParamField>
+
+<ParamField path="VAULT_ADDRESS" type="string" required>
+  Address of the deployed MetaVault contract.
+</ParamField>
+
+<ParamField path="ROUTER_ADDRESS" type="string" required>
+  Address of the deployed Router contract.
+</ParamField>
+
+<ParamField path="STRATEGY_LEVERAGE_ADDRESS" type="string" required>
+  Address of the Aave Leverage Strategy contract.
+</ParamField>
+
+<ParamField path="STRATEGY_AAVE_ADDRESS" type="string" required>
+  Address of the Aave V3 Strategy contract.
+</ParamField>
+
+<ParamField path="LINK_ADDRESS" type="string" required>
+  Address of the LINK token (or mock LINK for testing).
+</ParamField>
+
+<ParamField path="MOCK_AAVE_POOL_ADDRESS" type="string" required>
+  Address of the mock Aave pool contract.
+</ParamField>
+
+<ParamField path="TELEGRAM_BOT_TOKEN" type="string">
+  Token for your Telegram bot.
+  
+  Optional. Used for sending strategy alerts and notifications.
+</ParamField>
+
+<ParamField path="TELEGRAM_CHANNEL_ID" type="string">
+  Telegram channel or chat ID for notifications.
+  
+  Optional. Where the bot will send messages.
+</ParamField>
+
+## Frontend Configuration
+
+The frontend requires contract addresses to interact with the blockchain.
+
+<Steps>
+  <Step title="Create Environment File">
+    ```bash
+    cd packages/frontend
+    cp .env.example .env.local
+    ```
+  </Step>
+
+  <Step title="Configure Contract Addresses">
+    Edit `packages/frontend/.env.local`:
+
+    ```env
+    # RPC URL
+    RPC_URL=http://127.0.0.1:8545
+
+    # Private Key (for backend operations)
+    PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+
+    # Agent API URL
+    AGENT_API_URL=http://localhost:3001
+
+    # CORE CONTRACTS
+    NEXT_PUBLIC_VAULT_ADDRESS=0x5FbDB2315678afecb367f032d93F642f64180aa3
+    NEXT_PUBLIC_ROUTER_ADDRESS=0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512
+    NEXT_PUBLIC_STRATEGY_LEVERAGE_ADDRESS=0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0
+    NEXT_PUBLIC_STRATEGY_AAVE_ADDRESS=0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9
+
+    # TOKENS
+    NEXT_PUBLIC_LINK_ADDRESS=0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+    ```
+
+    <Warning>
+      All variables prefixed with `NEXT_PUBLIC_` are exposed to the browser. Never put sensitive keys in these variables.
+    </Warning>
+  </Step>
+</Steps>
+
+### Configuration Reference
+
+<ParamField path="RPC_URL" type="string">
+  Ethereum RPC endpoint (not exposed to browser).
+</ParamField>
+
+<ParamField path="PRIVATE_KEY" type="string">
+  Private key for server-side operations (not exposed to browser).
+</ParamField>
+
+<ParamField path="AGENT_API_URL" type="string">
+  URL of the AI agent server API.
+  
+  Should match the PORT configured in the agents package.
+</ParamField>
+
+<ParamField path="NEXT_PUBLIC_VAULT_ADDRESS" type="string" required>
+  Address of the MetaVault contract (exposed to browser).
+</ParamField>
+
+<ParamField path="NEXT_PUBLIC_ROUTER_ADDRESS" type="string" required>
+  Address of the Router contract (exposed to browser).
+</ParamField>
+
+<ParamField path="NEXT_PUBLIC_STRATEGY_LEVERAGE_ADDRESS" type="string" required>
+  Address of the Aave Leverage Strategy contract (exposed to browser).
+</ParamField>
+
+<ParamField path="NEXT_PUBLIC_STRATEGY_AAVE_ADDRESS" type="string" required>
+  Address of the Aave V3 Strategy contract (exposed to browser).
+</ParamField>
+
+<ParamField path="NEXT_PUBLIC_LINK_ADDRESS" type="string" required>
+  Address of the LINK token contract (exposed to browser).
+</ParamField>
+
+## Environment-Specific Configuration
+
+<Tabs>
+  <Tab title="Local Development">
+    Use Hardhat's local network:
+
+    ```env
+    RPC_URL=http://127.0.0.1:8545
+    ```
+
+    Use Hardhat's first test account:
+
+    ```env
+    PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+    ```
+  </Tab>
+
+  <Tab title="Testnet">
+    Use a testnet RPC (e.g., Sepolia via Infura):
+
+    ```env
+    RPC_URL=https://sepolia.infura.io/v3/YOUR_INFURA_KEY
+    ```
+
+    Use your testnet wallet private key:
+
+    ```env
+    PRIVATE_KEY=your_testnet_private_key
+    ```
+
+    <Warning>
+      Never commit private keys to version control. Use environment variables or secret management.
+    </Warning>
+  </Tab>
+
+  <Tab title="Mainnet">
+    Use a mainnet RPC:
+
+    ```env
+    RPC_URL=https://mainnet.infura.io/v3/YOUR_INFURA_KEY
+    ```
+
+    <Danger>
+      Use a secure wallet and never expose your mainnet private key. Consider using a hardware wallet or secure key management service.
+    </Danger>
+  </Tab>
+</Tabs>
+
+## Validation
+
+After configuration, verify your setup:
+
+<CodeGroup>
+  ```bash Contracts
+  cd packages/contracts
+  pnpm hardhat compile
+  ```
+
+  ```bash Agents
+  cd packages/agents/defi-portfolio
+  pnpm run build
+  ```
+
+  ```bash Frontend
+  cd packages/frontend
+  pnpm run build
+  ```
+</CodeGroup>
+
+If all builds succeed, your configuration is correct.
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Invalid RPC URL">
+    Ensure your Hardhat node is running:
+    ```bash
+    cd packages/contracts
+    pnpm hardhat node
+    ```
+  </Accordion>
+
+  <Accordion title="Contract Address Not Found">
+    Make sure you've deployed the contracts:
+    ```bash
+    cd packages/contracts
+    pnpm hardhat run scripts/deploy_mocks.ts --network localhost
+    ```
+    
+    Copy the addresses from the deployment output to your `.env` files.
+  </Accordion>
+
+  <Accordion title="OpenRouter API Error">
+    Verify your OpenRouter API key is correct and has credits.
+    
+    Check your account at [openrouter.ai](https://openrouter.ai).
+  </Accordion>
+
+  <Accordion title="Port Already in Use">
+    Change the PORT variables in your configuration:
+    ```env
+    PORT=3003
+    CHAT_PORT=3004
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Architecture" icon="sitemap" href="/architecture/system-overview">
+    Understand how MetaVault AI components work together
+  </Card>
+  <Card title="AI Agents" icon="robot" href="/agents/overview">
+    Learn about the AI agents managing your vault
+  </Card>
+</CardGroup>

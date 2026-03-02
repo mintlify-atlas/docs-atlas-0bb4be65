@@ -1,0 +1,831 @@
+---
+title: 'Web3 Integration with Wagmi & Viem'
+description: 'Complete guide to Web3 integration using Wagmi and Viem in MetaVault AI'
+---
+
+## Overview
+
+MetaVault AI uses **Wagmi v2** and **Viem v2** for all Web3 interactions. This provides type-safe, React-friendly hooks for wallet connections, contract reads/writes, and event listening.
+
+## Wagmi Configuration
+
+### Setup (`src/config/wagmi.ts:1`)
+
+```typescript
+import { http, createConfig, createStorage, cookieStorage } from 'wagmi'
+import { sepolia } from 'wagmi/chains'
+import { injected, walletConnect } from 'wagmi/connectors'
+
+const walletConnectProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || ''
+const sepoliaRpcUrl = process.env.NEXT_PUBLIC_RPC_URL
+
+export const config = createConfig({
+  // Supported chains
+  chains: [sepolia],
+
+  // Wallet connectors
+  connectors: [
+    // Browser extension wallets (MetaMask, Rabby, etc.)
+    injected({
+      shimDisconnect: true,
+      target() {
+        return {
+          id: 'injected',
+          name: 'Browser Wallet',
+          provider: typeof window !== 'undefined' ? window.ethereum : undefined,
+        }
+      },
+    }),
+
+    // WalletConnect v2 (client-side only)
+    ...(typeof window !== 'undefined' ? [
+      walletConnect({
+        projectId: walletConnectProjectId,
+        metadata: {
+          name: 'MetaVault AI',
+          description: 'Intelligent DeFi Portfolio Management',
+          url: window.location.origin,
+          icons: [`${window.location.origin}/logo.png`],
+        },
+        showQrModal: true,
+        qrModalOptions: {
+          themeMode: 'dark',
+          themeVariables: {
+            '--wcm-z-index': '9999',
+          },
+        },
+      })
+    ] : []),
+  ],
+
+  // RPC transports
+  transports: {
+    [sepolia.id]: http(sepoliaRpcUrl)
+  },
+
+  // Cookie storage for SSR compatibility
+  storage: createStorage({
+    storage: cookieStorage,
+  }),
+
+  // Enable SSR
+  ssr: true,
+
+  // Batch multiple calls into single RPC request
+  batch: {
+    multicall: true,
+  },
+})
+```
+
+**Key Features:**
+- **SSR Support**: Cookie storage instead of localStorage
+- **Multiple Connectors**: Injected and WalletConnect
+- **Multicall Batching**: Reduces RPC calls
+- **Client-Side WalletConnect**: Prevents SSR issues
+
+---
+
+## Contract Abstractions
+
+### Contract Addresses (`src/lib/contracts.ts:1`)
+
+```typescript
+import { Address } from "viem";
+
+export const CONTRACTS = {
+  VAULT: (process.env.NEXT_PUBLIC_VAULT_ADDRESS || "0x0000000000000000000000000000000000000000") as Address,
+  ROUTER: (process.env.NEXT_PUBLIC_ROUTER_ADDRESS || "0x0000000000000000000000000000000000000000") as Address,
+  STRATEGY_AAVE: (process.env.NEXT_PUBLIC_STRATEGY_AAVE_ADDRESS || "0x0000000000000000000000000000000000000000") as Address,
+  STRATEGY_LEVERAGE: (process.env.NEXT_PUBLIC_STRATEGY_LEVERAGE_ADDRESS || "0x0000000000000000000000000000000000000000") as Address,
+  LINK: (process.env.NEXT_PUBLIC_LINK_ADDRESS || "0x0000000000000000000000000000000000000000") as Address,
+};
+
+export function isValidAddress(address: Address): boolean {
+  return address !== "0x0000000000000000000000000000000000000000" && address.startsWith("0x");
+}
+```
+
+### Contract ABIs
+
+#### Vault ABI (`src/lib/contracts.ts:19`)
+
+```typescript
+export const VAULT_ABI = [
+  {
+    inputs: [{ internalType: "uint256", name: "amount", type: "uint256" }],
+    name: "deposit",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "uint256", name: "shares", type: "uint256" }],
+    name: "withdraw",
+    outputs: [{ internalType: "uint256", name: "assetsOut", type: "uint256" }],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "totalAssets",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "totalManagedAssets",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "address", name: "account", type: "address" }],
+    name: "balanceOf",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "uint256", name: "shares", type: "uint256" }],
+    name: "convertToAssets",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "address", name: "user", type: "address" }],
+    name: "userGrowthPercent",
+    outputs: [{ internalType: "int256", name: "", type: "int256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+] as const;
+```
+
+#### Router ABI (`src/lib/contracts.ts:85`)
+
+```typescript
+export const ROUTER_ABI = [
+  {
+    inputs: [],
+    name: "rebalance",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "getPortfolioState",
+    outputs: [
+      { internalType: "address[]", name: "strats", type: "address[]" },
+      { internalType: "uint256[]", name: "balances", type: "uint256[]" },
+      { internalType: "uint256[]", name: "targets", type: "uint256[]" },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+] as const;
+```
+
+#### ERC20 ABI (`src/lib/contracts.ts:131`)
+
+```typescript
+export const ERC20_ABI = [
+  {
+    inputs: [{ internalType: "address", name: "account", type: "address" }],
+    name: "balanceOf",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "address", name: "spender", type: "address" },
+      { internalType: "uint256", name: "amount", type: "uint256" },
+    ],
+    name: "approve",
+    outputs: [{ internalType: "bool", name: "", type: "bool" }],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "address", name: "owner", type: "address" },
+      { internalType: "address", name: "spender", type: "address" },
+    ],
+    name: "allowance",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+] as const;
+```
+
+---
+
+## Wagmi Hooks Patterns
+
+### 1. Wallet Connection
+
+#### useAccount
+
+```tsx
+import { useAccount } from 'wagmi'
+
+function Component() {
+  const { address, isConnected, connector } = useAccount()
+  
+  if (!isConnected) {
+    return <div>Please connect wallet</div>
+  }
+  
+  return <div>Connected: {address}</div>
+}
+```
+
+#### useConnect
+
+```tsx
+import { useConnect } from 'wagmi'
+
+function WalletButton() {
+  const { connect, connectors, isPending, error } = useConnect()
+  
+  return (
+    <>
+      {connectors.map((connector) => (
+        <button
+          key={connector.id}
+          onClick={() => connect({ connector })}
+          disabled={isPending}
+        >
+          {connector.name}
+        </button>
+      ))}
+      {error && <div>{error.message}</div>}
+    </>
+  )
+}
+```
+
+#### useDisconnect
+
+```tsx
+import { useDisconnect } from 'wagmi'
+
+function DisconnectButton() {
+  const { disconnect } = useDisconnect()
+  return <button onClick={() => disconnect()}>Disconnect</button>
+}
+```
+
+---
+
+### 2. Reading Contract Data
+
+#### useReadContract
+
+```tsx
+import { useReadContract } from 'wagmi'
+import { CONTRACTS, VAULT_ABI } from '@/lib/contracts'
+
+function VaultBalance() {
+  const { data: totalAssets, isLoading, error } = useReadContract({
+    address: CONTRACTS.VAULT,
+    abi: VAULT_ABI,
+    functionName: 'totalAssets',
+    query: {
+      enabled: true,
+      refetchInterval: 5000, // Refetch every 5 seconds
+    },
+  })
+  
+  if (isLoading) return <div>Loading...</div>
+  if (error) return <div>Error: {error.message}</div>
+  
+  return <div>Total Assets: {totalAssets?.toString()}</div>
+}
+```
+
+#### With Dynamic Arguments
+
+```tsx
+const { address } = useAccount()
+
+const { data: userShares } = useReadContract({
+  address: CONTRACTS.VAULT,
+  abi: VAULT_ABI,
+  functionName: 'balanceOf',
+  args: address ? [address] : undefined,
+  query: {
+    enabled: !!address, // Only run when address is available
+  },
+})
+```
+
+#### Dependent Reads
+
+```tsx
+const { data: userShares } = useReadContract({
+  address: CONTRACTS.VAULT,
+  abi: VAULT_ABI,
+  functionName: 'balanceOf',
+  args: [address],
+})
+
+const { data: userAssets } = useReadContract({
+  address: CONTRACTS.VAULT,
+  abi: VAULT_ABI,
+  functionName: 'convertToAssets',
+  args: userShares ? [userShares] : undefined,
+  query: {
+    enabled: !!userShares, // Only run after userShares is available
+  },
+})
+```
+
+---
+
+### 3. Writing to Contracts
+
+#### useWriteContract
+
+```tsx
+import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
+import { CONTRACTS, VAULT_ABI } from '@/lib/contracts'
+import { parseTokenAmount } from '@/lib/utils'
+
+function DepositButton() {
+  const { writeContract, data: hash, isPending, error } = useWriteContract()
+  
+  const handleDeposit = () => {
+    const amount = parseTokenAmount('100') // 100 tokens
+    writeContract({
+      address: CONTRACTS.VAULT,
+      abi: VAULT_ABI,
+      functionName: 'deposit',
+      args: [amount],
+    })
+  }
+  
+  return (
+    <button onClick={handleDeposit} disabled={isPending}>
+      {isPending ? 'Depositing...' : 'Deposit'}
+    </button>
+  )
+}
+```
+
+#### Transaction Confirmation
+
+```tsx
+const { writeContract, data: hash } = useWriteContract()
+
+const { isLoading, isSuccess, isError } = useWaitForTransactionReceipt({
+  hash,
+})
+
+useEffect(() => {
+  if (isSuccess) {
+    console.log('Transaction confirmed!')
+    refetchData()
+  }
+}, [isSuccess])
+
+return (
+  <div>
+    {isLoading && <div>Confirming transaction...</div>}
+    {isSuccess && <div>Transaction successful!</div>}
+    {isError && <div>Transaction failed</div>}
+  </div>
+)
+```
+
+#### Sequential Transactions (Approve + Deposit)
+
+```tsx
+const [shouldDepositAfterApproval, setShouldDepositAfterApproval] = useState(false)
+
+const { writeContract: approve, data: approveHash } = useWriteContract()
+const { writeContract: deposit, data: depositHash } = useWriteContract()
+
+const { isSuccess: isApprovalSuccess } = useWaitForTransactionReceipt({
+  hash: approveHash,
+})
+
+// Auto-deposit after approval
+useEffect(() => {
+  if (isApprovalSuccess && shouldDepositAfterApproval) {
+    deposit({
+      address: CONTRACTS.VAULT,
+      abi: VAULT_ABI,
+      functionName: 'deposit',
+      args: [amount],
+    })
+    setShouldDepositAfterApproval(false)
+  }
+}, [isApprovalSuccess, shouldDepositAfterApproval])
+
+const handleDeposit = () => {
+  if (needsApproval) {
+    setShouldDepositAfterApproval(true)
+    approve({
+      address: CONTRACTS.LINK,
+      abi: ERC20_ABI,
+      functionName: 'approve',
+      args: [CONTRACTS.VAULT, amount],
+    })
+  } else {
+    deposit({ ... })
+  }
+}
+```
+
+---
+
+### 4. Event Listening
+
+#### useWatchContractEvent
+
+```tsx
+import { useWatchContractEvent } from 'wagmi'
+import { CONTRACTS, VAULT_ABI } from '@/lib/contracts'
+
+function VaultMonitor() {
+  const { refetch } = useReadContract({ ... })
+  
+  useWatchContractEvent({
+    address: CONTRACTS.VAULT,
+    abi: VAULT_ABI,
+    eventName: 'Deposit',
+    onLogs: (logs) => {
+      console.log('Deposit detected:', logs)
+      refetch() // Refresh data
+    },
+  })
+  
+  return <div>Monitoring deposits...</div>
+}
+```
+
+#### Multiple Event Listeners
+
+```tsx
+const refetchAll = () => {
+  refetchTotalAssets()
+  refetchUserShares()
+}
+
+useWatchContractEvent({
+  address: CONTRACTS.VAULT,
+  abi: VAULT_ABI,
+  eventName: 'Deposit',
+  onLogs: () => refetchAll(),
+})
+
+useWatchContractEvent({
+  address: CONTRACTS.VAULT,
+  abi: VAULT_ABI,
+  eventName: 'Withdraw',
+  onLogs: () => refetchAll(),
+})
+```
+
+---
+
+### 5. Chain Management
+
+#### useChainId
+
+```tsx
+import { useChainId } from 'wagmi'
+import { sepolia } from 'wagmi/chains'
+
+function NetworkIndicator() {
+  const chainId = useChainId()
+  const isCorrectNetwork = chainId === sepolia.id
+  
+  if (!isCorrectNetwork) {
+    return <div>Please switch to Sepolia</div>
+  }
+  
+  return <div>Connected to Sepolia</div>
+}
+```
+
+#### useSwitchChain
+
+```tsx
+import { useSwitchChain } from 'wagmi'
+import { sepolia } from 'wagmi/chains'
+
+function NetworkSwitcher() {
+  const { switchChain } = useSwitchChain()
+  
+  return (
+    <button onClick={() => switchChain({ chainId: sepolia.id })}>
+      Switch to Sepolia
+    </button>
+  )
+}
+```
+
+#### Auto Network Switch
+
+```tsx
+const { isConnected } = useAccount()
+const chainId = useChainId()
+const { switchChain } = useSwitchChain()
+
+useEffect(() => {
+  if (isConnected && chainId !== sepolia.id) {
+    const timer = setTimeout(() => {
+      switchChain?.({ chainId: sepolia.id })
+    }, 1000)
+    return () => clearTimeout(timer)
+  }
+}, [isConnected, chainId])
+```
+
+---
+
+## Viem Utilities
+
+### Direct Client Usage
+
+For operations not covered by Wagmi hooks:
+
+#### usePublicClient
+
+```tsx
+import { usePublicClient } from 'wagmi'
+
+function EventFetcher() {
+  const publicClient = usePublicClient()
+  
+  const fetchEvents = async () => {
+    const logs = await publicClient.getContractEvents({
+      address: CONTRACTS.VAULT,
+      abi: ERC20_ABI,
+      eventName: 'Transfer',
+      fromBlock: 'earliest',
+    })
+    console.log('Transfer events:', logs)
+  }
+  
+  return <button onClick={fetchEvents}>Fetch Events</button>
+}
+```
+
+#### useWalletClient
+
+```tsx
+import { useWalletClient } from 'wagmi'
+
+function TransactionSender() {
+  const { data: walletClient } = useWalletClient()
+  
+  const sendTransaction = async () => {
+    if (!walletClient) return
+    
+    const hash = await walletClient.sendTransaction({
+      to: '0x...',
+      value: parseEther('0.01'),
+    })
+    
+    console.log('Transaction sent:', hash)
+  }
+  
+  return <button onClick={sendTransaction}>Send TX</button>
+}
+```
+
+---
+
+## Utility Functions
+
+### Token Amount Conversion (`src/lib/utils.ts:1`)
+
+```typescript
+import { formatUnits, parseUnits } from "viem";
+
+export function formatTokenAmount(amount: bigint, decimals: number = 18): string {
+  return formatUnits(amount, decimals);
+}
+
+export function parseTokenAmount(amount: string, decimals: number = 18): bigint {
+  return parseUnits(amount, decimals);
+}
+```
+
+**Usage:**
+
+```tsx
+import { formatTokenAmount, parseTokenAmount } from '@/lib/utils'
+
+// BigInt to display string
+const balance: bigint = 1500000000000000000n
+const formatted = formatTokenAmount(balance, 18) // "1.5"
+
+// User input to BigInt
+const userInput = "100.5"
+const amount = parseTokenAmount(userInput, 18) // 100500000000000000000n
+```
+
+### Address Formatting
+
+```typescript
+export function formatAddress(address: string): string {
+  if (!address) return "";
+  return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
+```
+
+**Usage:**
+
+```tsx
+const address = "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb"
+formatAddress(address) // "0x742d...bEb"
+```
+
+### Number Formatting
+
+```typescript
+export function formatNumber(num: number | string, decimals: number = 2): string {
+  const n = typeof num === "string" ? parseFloat(num) : num;
+  return n.toLocaleString(undefined, {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+}
+```
+
+---
+
+## Advanced Patterns
+
+### Polling vs Events
+
+**Polling (useReadContract with refetchInterval):**
+```tsx
+const { data } = useReadContract({
+  ...,
+  query: { refetchInterval: 5000 } // Poll every 5 seconds
+})
+```
+
+**Event-driven (useWatchContractEvent):**
+```tsx
+useWatchContractEvent({
+  ...,
+  onLogs: () => refetch() // Only refetch when event occurs
+})
+```
+
+**Recommendation:** Use events for critical updates (deposits, withdrawals) and polling for general data.
+
+### Optimistic Updates
+
+```tsx
+const [optimisticBalance, setOptimisticBalance] = useState<bigint | null>(null)
+const { data: actualBalance, refetch } = useReadContract({ ... })
+
+const { writeContract } = useWriteContract()
+
+const handleDeposit = (amount: bigint) => {
+  // Immediate UI update
+  setOptimisticBalance((prev) => (prev || 0n) + amount)
+  
+  writeContract({ ... })
+}
+
+const { isSuccess } = useWaitForTransactionReceipt({ hash })
+
+useEffect(() => {
+  if (isSuccess) {
+    refetch() // Get real balance from chain
+    setOptimisticBalance(null)
+  }
+}, [isSuccess])
+
+const displayBalance = optimisticBalance || actualBalance
+```
+
+### Error Handling
+
+```tsx
+const { data, error, isError } = useReadContract({ ... })
+
+if (isError) {
+  if (error.name === 'ContractFunctionExecutionError') {
+    return <div>Contract call failed: {error.message}</div>
+  }
+  if (error.name === 'ChainMismatchError') {
+    return <div>Wrong network</div>
+  }
+  return <div>Unknown error</div>
+}
+```
+
+---
+
+## Best Practices
+
+### 1. Enable Queries Conditionally
+
+```tsx
+const { data } = useReadContract({
+  ...,
+  query: {
+    enabled: isConnected && !!address && hasValidContracts,
+  },
+})
+```
+
+### 2. Refetch After Mutations
+
+```tsx
+const { refetch } = useReadContract({ ... })
+const { writeContract, data: hash } = useWriteContract()
+const { isSuccess } = useWaitForTransactionReceipt({ hash })
+
+useEffect(() => {
+  if (isSuccess) refetch()
+}, [isSuccess])
+```
+
+### 3. Use `as const` for ABIs
+
+```typescript
+export const VAULT_ABI = [
+  ...
+] as const // Enables full type inference
+```
+
+### 4. Batch RPC Calls
+
+Enable multicall in config:
+```typescript
+const config = createConfig({
+  batch: { multicall: true },
+})
+```
+
+### 5. SSR-Safe Rendering
+
+```tsx
+const [isMounted, setIsMounted] = useState(false)
+
+useEffect(() => setIsMounted(true), [])
+
+if (!isMounted) return <Skeleton />
+```
+
+---
+
+## Common Issues
+
+### Issue: "window is not defined" in SSR
+
+**Solution:** Use client-side only code:
+```tsx
+...(typeof window !== 'undefined' ? [walletConnect({ ... })] : [])
+```
+
+### Issue: Hydration mismatch
+
+**Solution:** Wait for mount:
+```tsx
+const [isMounted, setIsMounted] = useState(false)
+useEffect(() => setIsMounted(true), [])
+if (!isMounted) return null
+```
+
+### Issue: Transaction reverts with no error
+
+**Solution:** Check gas and approvals:
+```tsx
+const { data: allowance } = useReadContract({
+  functionName: 'allowance',
+  args: [owner, spender],
+})
+
+if (allowance < amount) {
+  // Approve first
+}
+```
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Frontend Overview" icon="globe" href="/frontend/overview">
+    Return to architecture overview
+  </Card>
+  <Card title="React Components" icon="shapes" href="/frontend/components">
+    Explore component patterns
+  </Card>
+</CardGroup>

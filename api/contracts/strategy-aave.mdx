@@ -1,0 +1,360 @@
+---
+title: 'StrategyAave Contract'
+description: 'Simple Aave V3 lending strategy for generating yield from supply interest'
+---
+
+## Overview
+
+The `StrategyAaveV3` contract implements a straightforward yield strategy by supplying assets to Aave V3 and earning supply-side interest. This is a non-leveraged strategy ideal for stable, low-risk yield generation.
+
+**Implements**: `IStrategy`
+
+**Risk Level**: Low (no leverage, no borrowing)
+
+## State Variables
+
+<ResponseField name="token" type="IERC20" required>
+  Immutable. The underlying asset token (e.g., USDC, LINK).
+</ResponseField>
+
+<ResponseField name="vault" type="address" required>
+  Immutable. Address of the Vault contract that owns this strategy.
+</ResponseField>
+
+<ResponseField name="router" type="address" required>
+  Immutable. Address of the StrategyRouter that controls this strategy.
+</ResponseField>
+
+<ResponseField name="pool" type="IPool" required>
+  Immutable. Aave V3 Pool contract interface.
+</ResponseField>
+
+<ResponseField name="dataProvider" type="IProtocolDataProvider" required>
+  Immutable. Aave Protocol Data Provider for querying reserve data.
+</ResponseField>
+
+<ResponseField name="deposited" type="uint256" required>
+  Tracks principal deposited (for bookkeeping and APY calculation).
+</ResponseField>
+
+## Constructor
+
+```solidity
+constructor(
+    address _asset,
+    address _vault,
+    address _router,
+    address _pool,
+    address _dataProvider
+)
+```
+
+<ParamField path="_asset" type="address" required>
+  Address of the underlying asset token
+</ParamField>
+
+<ParamField path="_vault" type="address" required>
+  Address of the Vault contract
+</ParamField>
+
+<ParamField path="_router" type="address" required>
+  Address of the StrategyRouter
+</ParamField>
+
+<ParamField path="_pool" type="address" required>
+  Address of Aave V3 Pool contract
+</ParamField>
+
+<ParamField path="_dataProvider" type="address" required>
+  Address of Aave Protocol Data Provider
+</ParamField>
+
+**Initialization**:
+- Approves pool to spend unlimited tokens (gas optimization)
+- Sets all immutable references
+
+## IStrategy Interface Implementation
+
+### invest
+
+```solidity
+function invest(uint256 amount) external override onlyRouter
+```
+
+Supply assets to Aave V3 pool.
+
+<ParamField path="amount" type="uint256" required>
+  Amount of assets to invest (must already be transferred to strategy)
+</ParamField>
+
+**Requirements**:
+- Only callable by router
+- Strategy must already hold the tokens (via `vault.moveToStrategy()`)
+
+**Process**:
+1. Calls `pool.supply()` to deposit tokens into Aave
+2. Receives aTokens (interest-bearing tokens) in return
+3. Updates `deposited` principal tracker
+
+**Example Flow**:
+
+```solidity
+// Router calls:
+vault.moveToStrategy(address(strategy), 10000e6);
+strategy.invest(10000e6);
+// Strategy now holds aUSDC tokens earning interest
+```
+
+### withdrawToVault
+
+```solidity
+function withdrawToVault(uint256 amount) external override onlyRouter returns(uint256)
+```
+
+Withdraw assets from Aave and transfer to vault.
+
+<ParamField path="amount" type="uint256" required>
+  Amount of underlying assets to withdraw
+</ParamField>
+
+<ResponseField name="withdrawn" type="uint256">
+  Actual amount withdrawn and sent to vault
+</ResponseField>
+
+**Process**:
+1. Calls `pool.withdraw()` to redeem aTokens for underlying
+2. Transfers underlying tokens to vault
+3. Updates `deposited` tracker
+
+**Example**:
+
+```solidity
+// Withdraw 5000 USDC from strategy to vault
+uint256 amount = strategy.withdrawToVault(5000e6);
+// Vault now has 5000 USDC, strategy has less aUSDC
+```
+
+### harvest
+
+```solidity
+function harvest() external override onlyRouter
+```
+
+Harvest accrued interest and send to vault.
+
+**Process**:
+1. Queries current aToken balance (includes accrued interest)
+2. Calculates profit: `aBal - deposited`
+3. Withdraws profit from Aave
+4. Transfers profit to vault
+5. Keeps principal deposited
+
+**Note**: Principal remains invested; only profits are harvested.
+
+**Example**:
+
+```solidity
+// Before harvest:
+// deposited = 10000 USDC
+// aToken balance = 10050 USDC (includes 50 USDC interest)
+
+strategy.harvest();
+
+// After harvest:
+// deposited = 10000 USDC (unchanged)
+// aToken balance = 10000 USDC
+// Vault received 50 USDC profit
+```
+
+### strategyBalance
+
+```solidity
+function strategyBalance() public view override returns (uint256)
+```
+
+Get total value of assets held by strategy.
+
+<ResponseField name="balance" type="uint256">
+  Total underlying value (principal + accrued interest)
+</ResponseField>
+
+**Uses**: `pool.getUnderlyingValue()` to query Aave for current position value.
+
+### deleverageAll
+
+```solidity
+function deleverageAll(uint256 /*maxLoops*/) external override onlyRouter
+```
+
+No-op function for non-leveraged strategies.
+
+<ParamField path="maxLoops" type="uint256">
+  Ignored (no leverage to unwind)
+</ParamField>
+
+**Note**: This strategy doesn't use leverage, so deleveraging is unnecessary. Kept for interface compliance.
+
+## View Functions
+
+### estimateAPY
+
+```solidity
+function estimateAPY() external view returns (uint256)
+```
+
+Estimate current APY based on accrued interest.
+
+<ResponseField name="apy" type="uint256">
+  Estimated APY scaled by 1e18 (1e18 = 100% APY)
+</ResponseField>
+
+**Formula**: `(currentBalance - deposited) * 1e18 / deposited`
+
+**Note**: This is a snapshot estimate, not annualized. For accurate APY, track over time.
+
+**Example**:
+
+```solidity
+uint256 apy = strategy.estimateAPY();
+// apy = 5e16 means 5% gain since last deposit
+// Not annualized - multiply by blocks per year for annual rate
+```
+
+## Integration Example
+
+```solidity
+// 1. Deploy strategy
+StrategyAaveV3 strategy = new StrategyAaveV3(
+    address(usdc),                    // asset
+    address(vault),                   // vault
+    address(router),                  // router
+    0x794a61358D6845594F94dc1DB02A252b5b4814aD,  // Aave V3 Pool
+    0x69FA688f1Dc47d4B5d8029D5a35FB7a548310654   // Data Provider
+);
+
+// 2. Add to router strategies
+address[] memory strats = new address[](1);
+strats[0] = address(strategy);
+
+uint256[] memory allocations = new uint256[](1);
+allocations[0] = 10000; // 100% allocation
+
+router.setStrategies(strats, allocations);
+
+// 3. Invest funds
+router.moveFundsToStrategy(address(strategy), 100000e6);
+
+// 4. Check position
+uint256 balance = strategy.strategyBalance();
+uint256 apy = strategy.estimateAPY();
+console.log("Strategy balance:", balance);
+console.log("Estimated APY:", apy);
+
+// 5. Harvest profits
+router.harvestAll();
+// Profits sent to vault, performance fee deducted
+
+// 6. Withdraw if needed
+strategy.withdrawToVault(50000e6);
+```
+
+## Aave V3 Integration Details
+
+### Supply Flow
+
+```solidity
+// When invest() is called:
+pool.supply(
+    address(token),     // Asset to supply (e.g., USDC)
+    amount,             // Amount to supply
+    address(this),      // Receive aTokens to this strategy
+    0                   // Referral code (unused)
+);
+// Strategy receives aUSDC tokens that accrue interest
+```
+
+### Withdraw Flow
+
+```solidity
+// When withdrawToVault() is called:
+uint256 withdrawn = pool.withdraw(
+    address(token),     // Asset to withdraw
+    amount,             // Amount to withdraw
+    address(this)       // Receive tokens to this address
+);
+// Strategy's aUSDC is burned, receives USDC
+token.safeTransfer(vault, withdrawn);
+```
+
+### Interest Accrual
+
+Aave V3 aTokens automatically accrue interest through rebasing:
+- aToken balance increases over time
+- No need to claim rewards
+- `strategyBalance()` reflects current value including interest
+
+## Performance Characteristics
+
+**Gas Costs** (approximate):
+- `invest()`: ~150k gas (Aave supply)
+- `withdrawToVault()`: ~200k gas (Aave withdraw + transfer)
+- `harvest()`: ~250k gas (withdraw + transfer)
+- `strategyBalance()`: ~30k gas (view function)
+
+**Yield**:
+- Depends on Aave V3 supply APY for the asset
+- Typically 1-5% for stablecoins
+- Variable based on utilization
+
+**Risk**:
+- Smart contract risk (Aave V3)
+- No liquidation risk (no borrowing)
+- No impermanent loss (single asset)
+
+## Error Handling
+
+```solidity
+// Router handles invest failures gracefully
+try strategy.invest(amount) {
+    // Success
+} catch {
+    // Investment failed (e.g., Aave paused)
+    // Router emits StrategyWithdrawFailed event
+    // Funds remain in strategy for retry
+}
+```
+
+## Security Considerations
+
+1. **Unlimited Approval**: Strategy approves pool for `type(uint256).max` in constructor. Safe for Aave but consider if pool is compromised.
+2. **Router Trust**: Only router can call invest/withdraw/harvest. Router must be secure.
+3. **Aave Risk**: Relies on Aave V3 security. Pool pause could temporarily lock funds.
+4. **Reentrancy**: Uses SafeERC20 which includes reentrancy protection.
+
+## Monitoring & Maintenance
+
+```solidity
+// Check strategy health
+uint256 balance = strategy.strategyBalance();
+uint256 principal = strategy.deposited();
+uint256 profit = balance - principal;
+
+// Monitor APY
+uint256 apy = strategy.estimateAPY();
+if (apy < minAPY) {
+    // Consider rebalancing to higher-yield strategy
+}
+
+// Emergency withdraw
+if (needToExitAave) {
+    uint256 fullBalance = strategy.strategyBalance();
+    strategy.withdrawToVault(fullBalance);
+}
+```
+
+## See Also
+
+- [StrategyRouter](/api/contracts/strategy-router) - Controls this strategy
+- [Vault](/api/contracts/vault) - Receives profits
+- [StrategyAaveLeverage](/api/contracts/strategy-aave-leverage) - Leveraged version
+- [Aave V3 Documentation](https://docs.aave.com/developers/core-contracts/pool) - Aave integration details

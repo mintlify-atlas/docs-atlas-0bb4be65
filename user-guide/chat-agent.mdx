@@ -1,0 +1,470 @@
+---
+title: Using the Chat Agent
+description: Interact with MetaVault AI through natural language conversations
+---
+
+MetaVault AI includes an intelligent chat agent that lets you interact with the vault using natural language. Ask questions, check balances, deposit funds, and withdraw shares - all through conversation.
+
+## Getting Started
+
+### Accessing the Chat Agent
+
+The chat agent is available through the **"Agent"** tab in the main navigation bar.
+
+![Agent tab in navigation bar next to Dashboard](/images/user-guide/agent-nav-tab.png)
+
+<Note>
+  You must connect your wallet before using the chat agent. The agent needs your wallet address to access your vault information and execute transactions.
+</Note>
+
+## Chat Interface
+
+The chat interface features:
+
+![Chat interface with message history and input field](/images/user-guide/chat-interface.png)
+
+<ResponseField name="Welcome Message" type="message">
+  The assistant greets you and explains its capabilities when you first open the chat.
+</ResponseField>
+
+<ResponseField name="Message History" type="scrollable area">
+  All your messages and the assistant's responses, with timestamps.
+  
+  - User messages appear on the right with dark background
+  - Assistant messages appear on the left with your profile icon
+  - Auto-scrolls to the latest message
+</ResponseField>
+
+<ResponseField name="Input Field" type="text input">
+  Enter your messages at the bottom of the screen.
+  
+  - Press **Enter** to send
+  - Click the **arrow icon** to send
+  - Input is disabled while the agent is processing
+</ResponseField>
+
+<ResponseField name="Loading Indicator" type="animated">
+  Three bouncing dots appear when the agent is thinking or processing your request.
+</ResponseField>
+
+## What the Agent Can Do
+
+The MetaVault AI agent can help you with:
+
+<CardGroup cols={2}>
+  <Card title="Check Balance" icon="wallet">
+    View your LINK balance, vault shares, and asset value.
+    
+    **Example prompts:**
+    - "What's my balance?"
+    - "How many shares do I have?"
+    - "Show my vault assets"
+  </Card>
+  
+  <Card title="Deposit Funds" icon="arrow-down-to-line">
+    Deposit LINK tokens into the vault through chat.
+    
+    **Example prompts:**
+    - "I want to deposit 50 LINK"
+    - "Deposit 100 tokens"
+    - "Add 25 LINK to my vault"
+  </Card>
+  
+  <Card title="Withdraw Funds" icon="arrow-up-from-line">
+    Withdraw shares and receive LINK back to your wallet.
+    
+    **Example prompts:**
+    - "Withdraw 50 shares"
+    - "I want to take out 100 shares"
+    - "Redeem 25 shares"
+  </Card>
+  
+  <Card title="Vault Information" icon="circle-info">
+    Get information about the vault's status and performance.
+    
+    **Example prompts:**
+    - "How is the vault performing?"
+    - "What's the total managed amount?"
+    - "Show me vault statistics"
+  </Card>
+</CardGroup>
+
+## Using the Agent
+
+### Checking Your Balance
+
+<Steps>
+  <Step title="Ask About Your Balance">
+    Type a message like "What's my balance?" or "How many shares do I have?"
+    
+    ![User message: 'What's my balance?'](/images/user-guide/chat-balance-query.png)
+  </Step>
+
+  <Step title="Review the Response">
+    The agent retrieves your on-chain data and responds with:
+    - Your LINK wallet balance
+    - Your vault shares
+    - Your asset value (LINK equivalent of shares)
+    - Your growth percentage
+    
+    ![Agent response showing balance details](/images/user-guide/chat-balance-response.png)
+  </Step>
+</Steps>
+
+### Depositing Through Chat
+
+The agent can execute deposits on your behalf:
+
+<Steps>
+  <Step title="Request a Deposit">
+    Tell the agent how much LINK you want to deposit:
+    
+    ```
+    "I want to deposit 50 LINK"
+    ```
+    
+    ![User requests deposit of 50 LINK](/images/user-guide/chat-deposit-request.png)
+  </Step>
+
+  <Step title="Review the Transaction Plan">
+    The agent confirms the action and explains what will happen:
+    
+    - Amount to deposit
+    - Required transactions (approval + deposit)
+    - Expected results
+    
+    ![Agent confirms deposit plan](/images/user-guide/chat-deposit-confirm.png)
+  </Step>
+
+  <Step title="Approve Token Spending (First Time)">
+    Your wallet will prompt you to approve LINK spending.
+    
+    - This is required once per wallet
+    - Grants the vault permission to spend your LINK
+    - Review and approve in your wallet
+    
+    <Warning>
+      Don't reject the approval transaction or the deposit will fail. You'll need to start over if you reject.
+    </Warning>
+  </Step>
+
+  <Step title="Confirm the Deposit Transaction">
+    After approval, your wallet prompts for the actual deposit transaction.
+    
+    - Review the transaction details
+    - Confirm gas fees
+    - Approve the deposit
+    
+    The agent automatically handles the multi-step process.
+  </Step>
+
+  <Step title="Wait for Confirmation">
+    The agent monitors the transaction status:
+    
+    - Shows "waiting for confirmation" messages
+    - Displays transaction hash
+    - Confirms when complete
+    
+    ![Agent confirms successful deposit](/images/user-guide/chat-deposit-success.png)
+  </Step>
+
+  <Step title="View Updated Balance">
+    After success, the agent may show your updated:
+    - Vault share balance
+    - New asset value
+    - Transaction details
+  </Step>
+</Steps>
+
+### Withdrawing Through Chat
+
+Withdraw shares conversationally:
+
+<Steps>
+  <Step title="Request a Withdrawal">
+    Tell the agent how many shares to withdraw:
+    
+    ```
+    "Withdraw 50 shares"
+    ```
+    
+    ![User requests withdrawal of 50 shares](/images/user-guide/chat-withdraw-request.png)
+  </Step>
+
+  <Step title="Review Withdrawal Details">
+    The agent confirms:
+    - Number of shares to withdraw
+    - Equivalent LINK amount
+    - 1% withdrawal fee
+    - Net amount you'll receive
+    
+    ![Agent shows withdrawal breakdown with fees](/images/user-guide/chat-withdraw-details.png)
+  </Step>
+
+  <Step title="Approve the Transaction">
+    Your wallet prompts you to confirm the withdrawal.
+    
+    - Review the transaction
+    - Confirm in your wallet
+    - Wait for blockchain confirmation
+  </Step>
+
+  <Step title="Receive Confirmation">
+    The agent confirms when your withdrawal completes:
+    
+    - Transaction hash
+    - LINK received (after fees)
+    - Updated share balance
+    
+    ![Agent confirms successful withdrawal](/images/user-guide/chat-withdraw-success.png)
+  </Step>
+</Steps>
+
+## Conversational Features
+
+### Natural Language Understanding
+
+The agent understands various phrasings:
+
+**Balance Queries:**
+- "What's my balance?"
+- "How many shares do I own?"
+- "Show me my vault position"
+- "What are my assets worth?"
+
+**Deposits:**
+- "Deposit 100 LINK"
+- "I want to add 50 tokens"
+- "Put 75 LINK in the vault"
+- "Invest 200 LINK"
+
+**Withdrawals:**
+- "Withdraw 50 shares"
+- "Take out 100 shares"
+- "Redeem 25 shares"
+- "Exit with 75 shares"
+
+**General Info:**
+- "How is the vault doing?"
+- "What's the APY?"
+- "Show vault statistics"
+- "How much is managed?"
+
+### Multi-Turn Conversations
+
+The agent maintains conversation context:
+
+```
+You: "What's my balance?"
+Agent: "You have 500 shares worth 550 LINK..."
+
+You: "Withdraw half of that"
+Agent: "I'll withdraw 250 shares for you..."
+```
+
+The agent remembers:
+- Your previous questions
+- Transaction amounts you mentioned
+- Context from earlier in the conversation
+
+<Info>
+  Each chat session maintains its own context. Refreshing the page starts a new session.
+</Info>
+
+## Transaction Handling
+
+### How Transactions Work
+
+1. **Agent Analysis**: Interprets your request and determines required actions
+2. **Transaction Creation**: Generates unsigned transaction data
+3. **Wallet Prompt**: Your wallet shows the transaction for approval
+4. **Broadcast**: After approval, transaction is sent to blockchain
+5. **Confirmation**: Agent waits for on-chain confirmation
+6. **Follow-up**: Agent confirms success and shows results
+
+### Two-Step Transactions (Deposits)
+
+First-time deposits require two transactions:
+
+1. **Approval Transaction**
+   - Grants vault permission to spend LINK
+   - Required once per wallet
+   - Agent handles automatically
+
+2. **Deposit Transaction**
+   - Actual transfer of LINK to vault
+   - Executes immediately after approval
+   - Agent manages the flow seamlessly
+
+<Note>
+  The agent coordinates both transactions automatically. Just approve each prompt in your wallet.
+</Note>
+
+### Transaction Failures
+
+If a transaction fails:
+
+- Agent shows an error message
+- Explains what went wrong
+- Suggests how to fix it
+- Lets you try again
+
+**Common failure reasons:**
+- Insufficient LINK balance
+- Insufficient ETH for gas
+- User rejected the transaction
+- Network connectivity issues
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Be Specific" icon="bullseye">
+    Include amounts and action verbs in your requests.
+    
+    ✅ "Deposit 100 LINK"
+    
+    ❌ "Put some in"
+  </Card>
+  
+  <Card title="Wait for Responses" icon="clock">
+    Let the agent finish responding before sending another message.
+    
+    The agent may need time to:
+    - Query blockchain data
+    - Create transactions
+    - Wait for confirmations
+  </Card>
+  
+  <Card title="Review Transaction Details" icon="magnifying-glass">
+    Always check your wallet prompts carefully.
+    
+    Verify:
+    - Contract address
+    - Transaction amount
+    - Gas fees
+  </Card>
+  
+  <Card title="Keep Context" icon="comment-dots">
+    Stay in the same conversation for related actions.
+    
+    The agent remembers context within a session.
+  </Card>
+</CardGroup>
+
+## Limitations
+
+<Warning>
+  **Current Limitations:**
+  
+  - Cannot execute multiple transactions simultaneously
+  - Requires wallet connection before use
+  - Session context resets on page refresh
+  - Limited to vault operations (deposit, withdraw, query)
+  - Cannot modify strategy allocations or vault settings
+  - Doesn't access external DeFi protocols directly
+</Warning>
+
+## Privacy & Security
+
+### Data Access
+
+The agent can access:
+- Your wallet address (you provide by connecting)
+- Your public on-chain vault data (shares, assets)
+- Public vault statistics (TVL, APY, strategies)
+
+### Transaction Security
+
+All transactions:
+- Require your explicit wallet approval
+- Are generated client-side
+- Cannot be executed without your signature
+- Are broadcast directly to the blockchain
+
+<Info>
+  The agent cannot access your private keys or execute transactions without your permission. You maintain full control through your wallet.
+</Info>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Agent says 'Please connect your wallet first'">
+    The agent needs your wallet to be connected:
+    1. Click the "Connect Wallet" button in the top-right
+    2. Connect your wallet
+    3. Return to the Agent tab
+    4. Try your request again
+  </Accordion>
+
+  <Accordion title="Transaction isn't showing in my wallet">
+    Possible causes:
+    - The agent is still generating the transaction
+    - Your wallet is locked
+    - Wallet popup is blocked by browser
+    
+    Check:
+    - Browser popup blocker settings
+    - Wallet extension is unlocked
+    - Wait for "Transaction sent" message from agent
+  </Accordion>
+
+  <Accordion title="Agent response seems incorrect">
+    The agent reads live blockchain data. If something seems wrong:
+    1. Verify on the Dashboard tab
+    2. Check your wallet's LINK balance directly
+    3. Wait a few seconds for blockchain confirmations
+    4. Try asking again
+    
+    If data is consistently incorrect, check your network connection.
+  </Accordion>
+
+  <Accordion title="Deposit failed after approval">
+    If approval succeeded but deposit failed:
+    1. Try depositing again (won't need to approve again)
+    2. Check your LINK balance (may not have enough)
+    3. Ensure you have ETH for gas fees
+    4. Ask the agent "What's my balance?" to verify
+  </Accordion>
+
+  <Accordion title="Agent is not responding">
+    If the agent stops responding:
+    1. Wait 30 seconds (may be processing)
+    2. Check your internet connection
+    3. Refresh the page and try again
+    4. Check browser console for errors
+    
+    The agent requires a backend API connection to function.
+  </Accordion>
+
+  <Accordion title="How do I start a fresh conversation?">
+    To reset conversation context:
+    1. Refresh the page
+    2. Navigate away and back to the Agent tab
+    
+    The agent will greet you again with the welcome message.
+  </Accordion>
+</AccordionGroup>
+
+## Tips for Advanced Use
+
+<Tip>
+  **Power User Tips:**
+  
+  1. **Check before depositing**: Ask "What's my LINK balance?" first to confirm you have enough
+  
+  2. **Partial withdrawals**: Withdraw small amounts first to test, then withdraw the rest
+  
+  3. **Monitor transactions**: Keep your wallet open to see transaction progress
+  
+  4. **Use the dashboard**: For visual performance tracking, use the Dashboard tab alongside chat
+  
+  5. **Ask for clarification**: If unsure, ask the agent to explain something before proceeding
+</Tip>
+
+## What's Next?
+
+Now that you know how to use the chat agent:
+
+- Try [depositing funds](/user-guide/depositing-funds) through the dashboard for comparison
+- [Track your performance](/user-guide/tracking-performance) visually on the dashboard
+- [Withdraw funds](/user-guide/withdrawing-funds) when ready to exit

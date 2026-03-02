@@ -1,0 +1,250 @@
+---
+title: Withdrawing Funds
+description: How to withdraw your LINK tokens from MetaVault AI
+---
+
+When you're ready to exit MetaVault AI or take profits, you can withdraw your funds at any time. The withdrawal process burns your vault shares and returns LINK tokens to your wallet.
+
+## Prerequisites
+
+<Check>
+  Your wallet must be connected to MetaVault AI.
+</Check>
+
+<Check>
+  You must have vault shares to withdraw. Check the **Your Shares** stat on the dashboard.
+</Check>
+
+<Check>
+  You need a small amount of Sepolia ETH for the withdrawal transaction gas fee.
+</Check>
+
+## Understanding Withdrawals
+
+### How Withdrawals Work
+
+- You specify how many **shares** to withdraw (not LINK amount)
+- The vault converts your shares to LINK based on the current share price
+- A **1% withdrawal fee** is deducted from your withdrawal amount
+- The fee goes to the vault's treasury to cover operational costs
+- Your shares are burned, and LINK is transferred to your wallet
+
+### Withdrawal Fee Breakdown
+
+**Example:**
+- You withdraw 100 shares
+- Current value: 110 LINK (you earned 10% yield)
+- Withdrawal fee (1%): 1.1 LINK
+- **You receive: 108.9 LINK**
+
+<Note>
+  The withdrawal fee is calculated on-chain by the smart contract and is displayed in the withdrawal modal before you confirm.
+</Note>
+
+## Withdrawing Your Funds
+
+<Steps>
+  <Step title="Open the Withdraw Modal">
+    In the dashboard, locate the Quick Actions card and click the **"Withdraw"** button.
+    
+    ![Withdraw button with dark background in Quick Actions card](/images/user-guide/withdraw-button.png)
+    
+    The Withdraw modal opens, showing:
+    - Amount input field (for shares)
+    - Your current share balance
+    - Fee breakdown section
+  </Step>
+
+  <Step title="Enter Withdrawal Amount">
+    Type the number of **shares** you want to withdraw.
+    
+    ![Withdraw modal with shares input field and balance display](/images/user-guide/withdraw-modal-input.png)
+    
+    Your total share balance is displayed below the input for reference.
+    
+    <Tip>
+      To withdraw everything, enter your entire share balance shown under "Your shares" in the modal.
+    </Tip>
+  </Step>
+
+  <Step title="Review the Fee Breakdown">
+    After entering an amount, a fee breakdown panel appears showing:
+    - **Withdrawal Amount**: Total LINK value of your shares
+    - **Withdraw Fee (1%)**: The 1% fee deducted
+    - **You Will Receive**: Final LINK amount after fees
+    
+    ![Fee breakdown shows withdrawal amount, 1% fee, and net amount you'll receive](/images/user-guide/withdraw-fee-breakdown.png)
+    
+    <Warning>
+      Review this breakdown carefully! The fee is non-refundable once the transaction completes.
+    </Warning>
+  </Step>
+
+  <Step title="Click Withdraw">
+    Once you've reviewed the fee breakdown, click the **"Withdraw"** button at the bottom of the modal.
+    
+    ![Blue Withdraw button at bottom of modal](/images/user-guide/withdraw-confirm-button.png)
+  </Step>
+
+  <Step title="Confirm in Wallet">
+    Your wallet will prompt you to confirm the withdrawal transaction.
+    
+    Review:
+    - The contract address (should be the MetaVault contract)
+    - Gas fees
+    - Transaction details
+    
+    Click **"Confirm"** in your wallet to proceed.
+  </Step>
+
+  <Step title="Wait for Confirmation">
+    The button updates to show **"Withdrawing..."** while the transaction processes.
+    
+    ![Loading state shows 'Withdrawing...' on the button](/images/user-guide/withdraw-loading.png)
+    
+    Withdrawal transactions typically take 10-30 seconds on Sepolia testnet.
+    
+    <Info>
+      The modal will automatically close once the withdrawal is confirmed on-chain.
+    </Info>
+  </Step>
+
+  <Step title="Verify Your Withdrawal">
+    After successful withdrawal:
+    - The modal closes automatically
+    - Your dashboard stats update in real-time:
+      - **Your Shares** decreases by the withdrawn amount
+      - **Your Assets** reflects your remaining vault balance
+      - **LINK balance** in the top nav increases
+    - Check your wallet to confirm LINK tokens were received
+    
+    ![Updated stats show decreased shares and increased wallet LINK balance](/images/user-guide/withdraw-success-stats.png)
+  </Step>
+</Steps>
+
+## Partial vs. Full Withdrawals
+
+### Partial Withdrawal
+
+Withdraw only some of your shares while keeping the rest invested:
+
+- Enter less than your total share balance
+- Your remaining shares continue earning yield
+- You can make multiple partial withdrawals
+- Each withdrawal incurs the 1% fee
+
+**Example:**
+- You have 1,000 shares
+- Withdraw 250 shares → Receive LINK minus 1% fee
+- 750 shares remain in the vault, still earning yield
+
+### Full Withdrawal
+
+Withdraw all your shares and exit completely:
+
+- Enter your entire share balance
+- All shares are burned
+- You receive all your LINK minus the 1% fee
+- Your vault position closes to zero
+
+**Example:**
+- You have 1,000 shares worth 1,100 LINK
+- Withdraw all 1,000 shares
+- Fee: 11 LINK (1%)
+- You receive: 1,089 LINK
+- Your position: 0 shares, 0 assets
+
+## When to Withdraw
+
+<CardGroup cols={2}>
+  <Card title="Taking Profits" icon="hand-holding-dollar">
+    When you've earned significant yield and want to realize gains. Check your **growth percentage** on the dashboard to see your returns.
+  </Card>
+  
+  <Card title="Rebalancing" icon="scale-balanced">
+    To move funds to other opportunities or rebalance your portfolio. You can always deposit again later.
+  </Card>
+  
+  <Card title="Partial Exit" icon="chart-line-down">
+    Withdraw some profits while keeping the rest invested to continue earning yield.
+  </Card>
+  
+  <Card title="Full Exit" icon="door-open">
+    When you're done using MetaVault AI and want to close your position completely.
+  </Card>
+</CardGroup>
+
+## Real-Time Updates
+
+After withdrawal:
+
+- Dashboard stats update automatically via blockchain event listeners
+- No page refresh needed
+- Updates appear within 1-2 seconds of transaction confirmation
+- All other depositors' views also update (for Total Managed stats)
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Error: Insufficient shares">
+    You're trying to withdraw more shares than you own. Check:
+    - The **Your Shares** stat on the dashboard
+    - The balance shown in the withdraw modal
+    
+    Enter a number less than or equal to your share balance.
+  </Accordion>
+
+  <Accordion title="Withdrawal amount seems wrong">
+    Remember:
+    - Share price can change (goes up as vault earns yield)
+    - The 1% withdrawal fee is deducted from the gross amount
+    - Review the fee breakdown panel before confirming
+    
+    The **"You Will Receive"** line shows your final net amount after fees.
+  </Accordion>
+
+  <Accordion title="Transaction failed">
+    Common causes:
+    - Insufficient gas (need Sepolia ETH)
+    - Trying to withdraw more shares than you have
+    - Network congestion
+    
+    Check your wallet for error details. Get Sepolia ETH from the [faucet](https://cloud.google.com/application/web3/faucet/ethereum/sepolia) if needed.
+  </Accordion>
+
+  <Accordion title="Withdrawal succeeded but LINK didn't arrive">
+    Wait a few moments - transfers can take time:
+    1. Check your LINK balance in the top nav bar (updates automatically)
+    2. Check your wallet's LINK token balance
+    3. Verify the transaction on [Sepolia Etherscan](https://sepolia.etherscan.io/)
+    
+    If the transaction shows success on Etherscan, your LINK is in your wallet.
+  </Accordion>
+
+  <Accordion title="Can I avoid the withdrawal fee?">
+    No, the 1% withdrawal fee is enforced by the smart contract and applies to all withdrawals. This fee:
+    - Covers operational costs
+    - Prevents exploitative behavior
+    - Is standard for vault protocols
+    
+    Plan your withdrawals to minimize fee impact (e.g., fewer, larger withdrawals instead of many small ones).
+  </Accordion>
+
+  <Accordion title="Stats aren't updating after withdrawal">
+    The dashboard uses real-time event listeners, but if stats don't update:
+    1. Wait 10-15 seconds for block confirmation
+    2. Verify the transaction completed successfully
+    3. Refresh the page manually if needed
+    
+    Check your wallet's LINK balance to confirm the withdrawal succeeded.
+  </Accordion>
+</AccordionGroup>
+
+## What's Next?
+
+After withdrawing:
+
+- Your LINK tokens are back in your wallet
+- You can deposit again anytime to rejoin the vault
+- Track historical performance in the [dashboard](/user-guide/tracking-performance)
+- Use the [chat agent](/user-guide/chat-agent) to check balances or make new deposits

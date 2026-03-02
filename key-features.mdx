@@ -1,0 +1,478 @@
+---
+title: Key features
+description: Discover what makes MetaVault AI unique with autonomous monitoring, intelligent risk management, and AI-powered optimization
+---
+
+# Key features
+
+MetaVault AI combines cutting-edge AI agent technology with battle-tested DeFi protocols to deliver a vault that actively manages your capital.
+
+## Autonomous strategy monitoring
+
+The Strategy Sentinel agent continuously monitors vault health without human intervention.
+
+### Real-time health checks
+
+- **Strategy balances**: Tracks deposited amounts, borrowed positions, and net exposure
+- **Loan-to-Value (LTV) monitoring**: Calculates current LTV ratio for leveraged positions
+- **Liquidation risk detection**: Identifies positions approaching danger zones
+- **Price tracking**: Fetches live LINK and WETH prices from CoinGecko API
+
+```typescript
+// Strategy Sentinel monitoring loop
+const states = await get_strategy_states();
+const prices = await get_token_prices();
+const leverageState = await get_leverage_strategy_state();
+
+if (leverageState.ltv > 0.7) {
+  // High risk detected - take action
+  await toggle_leverage_strategy_pause();
+  await auto_deleverage(5);
+}
+```
+
+### Intelligent alerting
+
+The agent evaluates multiple risk factors:
+
+- LTV exceeding 70% threshold
+- Rapid price movements (>10% change)
+- Divergence from target allocations
+- Low buffer to liquidation threshold
+- Excessive leverage ratios
+
+<Note>
+  The Strategy Sentinel uses rule-based decision logic, not guesses. All actions are based on on-chain data and real market prices.
+</Note>
+
+## Dynamic risk management
+
+MetaVault AI actively manages risk through multiple mechanisms.
+
+### Automatic deleveraging
+
+When liquidation risk is detected, the system automatically reduces leverage:
+
+1. Withdraw LINK collateral from Aave
+2. Swap LINK → WETH via Uniswap
+3. Repay WETH debt
+4. Repeat until LTV is safe
+
+```solidity
+function deleverageAll(uint256 maxLoops) external onlyRouter {
+    for (uint256 i = 0; i < maxLoops; i++) {
+        uint256 debt = pool.getUserDebt(address(this), WETH);
+        if (debt == 0) break;
+        
+        // Calculate LINK needed (with 5% buffer for slippage)
+        uint256 price = oracle.getPrice(WETH);
+        uint256 linkNeeded = (debt * price * 105) / (1e18 * 100);
+        
+        // Unwind: withdraw → swap → repay
+        pool.withdraw(address(token), linkNeeded, address(this));
+        swapRouter.swapExactTokensForTokens(linkNeeded, 0, path, address(this), block.timestamp + 300);
+        pool.repay(WETH, debt, 2, address(this));
+    }
+}
+```
+
+### Leverage parameter tuning
+
+The Strategy Sentinel can adjust leverage aggressiveness based on market conditions:
+
+**Parameters:**
+- `maxDepth` (1-6): Number of leverage loops
+- `borrowFactor` (0-8000 bps): Percentage to borrow per loop
+- `paused` (bool): Emergency pause flag
+
+**Adjustment strategy:**
+- High volatility → reduce `maxDepth` and `borrowFactor`
+- Stable markets → maintain or increase parameters
+- Extreme risk → set `paused = true`
+
+```typescript
+// Agent decision logic
+if (priceVolatility > 0.15) {
+  // Reduce leverage in volatile markets
+  await update_leverage_params({
+    maxDepth: 2,
+    borrowFactor: 4000  // 40% instead of 60%
+  });
+} else if (ltv > 0.7) {
+  // Emergency pause
+  await toggle_leverage_strategy_pause();
+}
+```
+
+### Strategy pause mechanism
+
+The leverage strategy can be paused instantly to prevent new risky investments:
+
+```solidity
+function invest(uint256 amount) external override onlyRouter {
+    require(!paused, "paused");
+    // ... investment logic
+}
+
+function togglePause() external onlyRouter {
+    paused = !paused;
+    emit PauseToggled(paused);
+}
+```
+
+## Intelligent portfolio rebalancing
+
+MetaVault AI maintains optimal allocation across strategies based on risk profile and market conditions.
+
+### Target weight management
+
+Default allocation:
+- **Leverage strategy**: 80% (high yield, high risk)
+- **Aave safe strategy**: 20% (stable yield, low risk)
+
+The Strategy Sentinel can adjust these weights dynamically:
+
+```typescript
+await update_strategy_target_weights({
+  leverageStrategy: 5000,  // 50%
+  aaveStrategy: 5000       // 50%
+});
+
+await rebalance_vault();
+```
+
+### Automatic rebalancing
+
+The `rebalance()` function reallocates funds to match target weights:
+
+1. Calculate total managed assets
+2. Pull excess from overweight strategies
+3. Push funds to underweight strategies
+4. Update bookkeeping
+
+```solidity
+function rebalance() external onlyOwner {
+    uint256 totalManaged = _computeTotalManaged();
+    
+    // Pull from overweight strategies
+    for (uint256 i = 0; i < strategies.length; i++) {
+        address strat = strategies[i];
+        uint256 current = IStrategy(strat).strategyBalance();
+        uint256 desired = (totalManaged * targetBps[strat]) / 10000;
+        
+        if (current > desired) {
+            uint256 excess = current - desired;
+            IStrategy(strat).withdrawToVault(excess);
+        }
+    }
+    
+    // Push to underweight strategies
+    uint256 vaultBal = vault.totalAssets();
+    for (uint256 i = 0; i < strategies.length; i++) {
+        address strat = strategies[i];
+        uint256 current = IStrategy(strat).strategyBalance();
+        uint256 desired = (totalManaged * targetBps[strat]) / 10000;
+        
+        if (current < desired && vaultBal > 0) {
+            uint256 need = desired - current;
+            uint256 amt = need <= vaultBal ? need : vaultBal;
+            vault.moveToStrategy(strat, amt);
+            IStrategy(strat).invest(amt);
+            vaultBal -= amt;
+        }
+    }
+}
+```
+
+### Rebalancing triggers
+
+The agent triggers rebalancing when:
+- Allocation drift exceeds 5%
+- Market conditions change significantly
+- New deposits increase vault balance
+- After updating target weights
+
+## Automated yield harvesting
+
+The vault automatically compounds profits back into strategies.
+
+### Harvest mechanism
+
+Each strategy implements a `harvest()` function:
+
+```solidity
+function harvest() external override onlyRouter {
+    (address aTokenAddr, , ) = dataProvider.getReserveTokensAddresses(address(token));
+    uint256 aBal = IERC20(aTokenAddr).balanceOf(address(this));
+    
+    if (aBal > deposited) {
+        uint256 profit = aBal - deposited;
+        uint256 out = pool.withdraw(address(token), profit, address(this));
+        token.safeTransfer(vault, out);
+        emit Harvested(out);
+    }
+}
+```
+
+### Performance fee application
+
+The vault takes a configurable performance fee on harvested profits:
+
+```solidity
+function handleHarvestProfit(uint256 profit) external {
+    require(msg.sender == router, "not router");
+    if (profit == 0) return;
+    
+    uint256 fee = (profit * performanceFeeBps) / 10000;
+    if (fee > 0) {
+        asset.safeTransfer(feeRecipient, fee);
+    }
+}
+```
+
+### Harvest all strategies
+
+The router can harvest all strategies in a single transaction:
+
+```solidity
+function harvestAll() external onlyOwner {
+    for (uint256 i = 0; i < strategies.length; i++) {
+        address strat = strategies[i];
+        uint256 beforeBal = vault.totalAssets();
+        
+        IStrategy(strat).harvest();
+        
+        uint256 afterBal = vault.totalAssets();
+        if (afterBal > beforeBal) {
+            uint256 profit = afterBal - beforeBal;
+            vault.handleHarvestProfit(profit);
+            emit Harvested(strat, profit);
+        }
+    }
+}
+```
+
+## Natural language interface
+
+The Chat agent provides an intuitive way to interact with the vault.
+
+### User-friendly commands
+
+Users can chat naturally:
+
+- "What's my balance?"
+- "Deposit 10 LINK"
+- "Show me the current APY"
+- "Withdraw all my funds"
+- "How much is LINK worth?"
+
+### Smart transaction preparation
+
+The agent handles the complex approval flow:
+
+1. Check if user has approved LINK spending
+2. If not, prepare approval transaction
+3. After approval, prepare deposit transaction
+4. Return unsigned transactions for wallet signature
+
+```typescript
+// Deposit flow in chat agent
+const allowance = await check_allowance(userWallet, amount);
+
+if (allowance < amount) {
+  // Need approval first
+  const approveTx = await approve_link(amount);
+  return {
+    reply: "Please sign this approval transaction to allow the vault to spend your LINK.",
+    unsignedTx: approveTx,
+    needsApproval: true,
+    step: "approval"
+  };
+} else {
+  // Already approved, prepare deposit
+  const depositTx = await user_deposit(amount);
+  return {
+    reply: "Ready to deposit! Please sign this transaction.",
+    unsignedTx: depositTx,
+    needsApproval: false,
+    step: "deposit"
+  };
+}
+```
+
+### Privacy and security
+
+The Chat agent enforces strict boundaries:
+
+- Only accesses data for the requesting user's wallet
+- Never exposes admin functions (rebalance, harvest, risk parameters)
+- Cannot view other users' balances or positions
+- Returns only public vault information (total assets, APY)
+
+<Note>
+  The Chat agent responds in JSON format for transactional operations, making it easy to integrate with frontend wallets.
+</Note>
+
+## Transparent performance tracking
+
+Every user can track their individual performance.
+
+### User growth calculation
+
+The vault maintains detailed accounting:
+
+```solidity
+mapping(address => uint256) public netDeposited;    // Total deposited
+mapping(address => uint256) public totalWithdrawn;  // Total withdrawn
+
+function userGrowth(address user) public view returns (int256) {
+    uint256 deposited = netDeposited[user];
+    if (deposited == 0) return 0;
+    
+    uint256 withdrawn = totalWithdrawn[user];
+    uint256 currentValue = convertToAssets(balanceOf(user));
+    
+    // PnL = (current value + withdrawn) - deposited
+    int256 pnl = int256(currentValue + withdrawn) - int256(deposited);
+    return pnl;
+}
+
+function userGrowthPercent(address user) external view returns (int256) {
+    uint256 deposited = netDeposited[user];
+    if (deposited == 0) return 0;
+    
+    int256 pnl = userGrowth(user);
+    return (pnl * 1e18) / int256(deposited);  // 1e18 = 100%
+}
+```
+
+### Share-based accounting
+
+The vault uses ERC20 shares for fair profit distribution:
+
+- New deposits receive shares at current price
+- Yields increase total assets, raising share price
+- Withdrawals burn shares at current price
+- All users benefit proportionally from yields
+
+```solidity
+function convertToShares(uint256 assets) public view returns (uint256) {
+    uint256 s = totalSupply();
+    return s == 0 ? assets : (assets * s) / totalManagedAssets();
+}
+
+function convertToAssets(uint256 shares) public view returns (uint256) {
+    uint256 s = totalSupply();
+    return s == 0 ? shares : (shares * totalManagedAssets()) / s;
+}
+```
+
+## Built with ADK-TS
+
+MetaVault AI showcases the power of the Agent Development Kit for TypeScript.
+
+### Key ADK-TS features used
+
+**Conversation orchestration:**
+- Session memory across interactions
+- Context state management for caching APY updates
+- Tool response formatting and guidance
+
+**TypeScript integration:**
+- Fully typed agent logic and tools
+- Seamless Next.js/React integration
+- Developer-friendly experience
+
+**Modular architecture:**
+```typescript
+import { AgentBuilder, LlmAgent } from "@iqai/adk";
+
+const strategySentinel = new LlmAgent({
+  name: "strategy_sentinel_agent",
+  description: "Guardian & Portfolio Manager",
+  instruction: "...",
+  model: model,
+  tools: [
+    get_strategy_states,
+    get_vault_state,
+    rebalance_vault,
+    auto_deleverage,
+    // ...
+  ]
+});
+
+const mainAgent = new AgentBuilder()
+  .addAgent(strategySentinel)
+  .addAgent(chatAgent)
+  .build();
+```
+
+### Benefits of ADK-TS
+
+1. **Reduced complexity**: Frontend doesn't need complex state management
+2. **Type safety**: Compile-time checks for agent logic and tools
+3. **Tool orchestration**: Structured calling conventions and error handling
+4. **Conversation memory**: Agents remember context across messages
+5. **Modular design**: Easy to add new specialized agents
+
+## Error handling and safety
+
+MetaVault AI includes comprehensive error handling.
+
+### Strategy operation safety
+
+All strategy operations use try-catch blocks:
+
+```solidity
+try IStrategy(strat).invest(amount) {
+    // success
+} catch (bytes memory reason) {
+    emit StrategyWithdrawFailed(strat, _decodeRevertReason(reason));
+    // Continue to next strategy instead of reverting entire transaction
+}
+```
+
+### Withdrawal protection
+
+The vault ensures users can always withdraw (if liquidity exists):
+
+```solidity
+function withdraw(uint256 shares) external returns (uint256 assetsOut) {
+    assetsOut = convertToAssets(shares);
+    _burn(msg.sender, shares);
+    
+    // Pull from strategies if vault doesn't have enough liquidity
+    uint256 vaultBal = asset.balanceOf(address(this));
+    if (vaultBal < assetsOut) {
+        uint256 needed = assetsOut - vaultBal;
+        IStrategyRouter(router).withdrawFromStrategies(needed);
+        require(
+            asset.balanceOf(address(this)) >= assetsOut,
+            "not enough liquidity after pull"
+        );
+    }
+    
+    asset.safeTransfer(msg.sender, assetsOut);
+}
+```
+
+### Leverage safety mechanisms
+
+The leverage strategy includes multiple safeguards:
+
+- Maximum depth capped at 6 iterations
+- Borrow factor limited to 80% (8000 bps)
+- Conservative borrowing based on pool liquidity
+- Automatic loop breaking on swap failures
+- Try-catch on all Aave interactions
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Getting started" icon="rocket" href="/getting-started/installation">
+    Set up and run MetaVault AI locally
+  </Card>
+  <Card title="API reference" icon="code" href="/api/contracts/vault">
+    Explore smart contract interfaces and agent tools
+  </Card>
+</CardGroup>

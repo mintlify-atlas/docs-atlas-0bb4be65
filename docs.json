@@ -1,122 +1,144 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "MetaVault AI",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#6366F1",
+    "light": "#818CF8",
+    "dark": "#4F46E5"
   },
-  "favicon": "/favicon.svg",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/Rohit-KK15/MetaVault-AI"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/Rohit-KK15/MetaVault-AI"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Overview",
             "pages": [
-              "index",
-              "quickstart",
-              "development"
+              "introduction",
+              "how-it-works",
+              "key-features"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Getting Started",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "getting-started/installation",
+              "getting-started/quick-start",
+              "getting-started/configuration"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "User Guide",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "user-guide/connecting-wallet",
+              "user-guide/depositing-funds",
+              "user-guide/withdrawing-funds",
+              "user-guide/tracking-performance",
+              "user-guide/chat-agent"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "AI Agents",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "agents/overview",
+              "agents/strategy-sentinel",
+              "agents/chat-agent",
+              "agents/yield-simulator"
+            ]
+          },
+          {
+            "group": "Vault Strategies",
+            "pages": [
+              "strategies/overview",
+              "strategies/aave-v3-strategy",
+              "strategies/aave-leverage-strategy",
+              "strategies/risk-management"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/system-overview",
+              "architecture/smart-contracts",
+              "architecture/frontend",
+              "architecture/agent-system"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "Development",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Setup",
             "pages": [
-              "api-reference/introduction"
+              "development/local-setup",
+              "development/running-locally",
+              "development/testing"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Smart Contracts",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "contracts/vault",
+              "contracts/strategy-router",
+              "contracts/strategies",
+              "contracts/deployment"
+            ]
+          },
+          {
+            "group": "Frontend",
+            "pages": [
+              "frontend/overview",
+              "frontend/components",
+              "frontend/web3-integration"
+            ]
+          },
+          {
+            "group": "AI Agents",
+            "pages": [
+              "development/agents/adk-ts-integration",
+              "development/agents/building-agents",
+              "development/agents/tools-and-functions",
+              "development/agents/automation"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Smart Contracts",
+            "pages": [
+              "api/contracts/vault",
+              "api/contracts/strategy-router",
+              "api/contracts/strategy-aave",
+              "api/contracts/strategy-aave-leverage"
+            ]
+          },
+          {
+            "group": "Agent API",
+            "pages": [
+              "api/agents/endpoints",
+              "api/agents/chat-api",
+              "api/agents/strategy-sentinel-api"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

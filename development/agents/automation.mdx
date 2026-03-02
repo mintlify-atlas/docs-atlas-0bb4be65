@@ -1,0 +1,575 @@
+---
+title: 'Agent Automation with Cron'
+description: 'Set up automated agent execution with cron jobs for continuous monitoring and management'
+icon: 'clock'
+---
+
+## Overview
+
+Agent automation enables continuous monitoring and management of your DeFi protocols without manual intervention. MetaVault AI uses `node-cron` to schedule periodic agent tasks.
+
+## Installation
+
+```bash
+pnpm add node-cron
+pnpm add -D @types/node-cron
+```
+
+## MonitoringService Class
+
+The `MonitoringService` class manages automated agent execution using cron jobs.
+
+```typescript src/crons/automation.ts
+import cron, { type ScheduledTask } from "node-cron";
+import dedent from "dedent";
+import { getRootAgent } from "../agents/agent";
+import type { EnhancedRunner } from "@iqai/adk";
+import { env } from "../env";
+
+export class MonitoringService {
+  private isRunning = false;
+  private monitoringJob: ScheduledTask | null = null;
+  private yieldGenerateJob: ScheduledTask | null = null;
+
+  constructor(
+    private readonly monitoringCronExpr = "0 */1 * * *", // every 1 hour
+    private readonly yieldGenerateCronExpr = "*/2 * * * *", // every 2 min
+    private readonly telegramRunner: EnhancedRunner,
+  ) { }
+
+  start(): void {
+    if (this.isRunning) {
+      console.log("⚠️ MonitoringService already running");
+      return;
+    }
+    this.isRunning = true;
+
+    console.log("🤖 Starting MonitoringService...");
+    console.log(`📅 Comprehensive cycle: ${this.monitoringCronExpr}`);
+    console.log(`💹 Yield generation: ${this.yieldGenerateCronExpr}`);
+
+    // Full monitoring every 1 Hour
+    this.monitoringJob = cron.schedule(this.monitoringCronExpr, async () => {
+      try {
+        await this.runMonitoringCycle();
+      } catch (err) {
+        console.error("❌ runMonitoringCycle error:", (err as Error).message);
+      }
+    });
+
+    // Yield generation every 2 minutes
+    this.yieldGenerateJob = cron.schedule(this.yieldGenerateCronExpr, async () => {
+      try {
+        await this.yieldGeneration();
+      } catch (err) {
+        console.error("❌ yieldGeneration error:", (err as Error).message);
+      }
+    });
+
+    // Run one cycle immediately
+    void this.runMonitoringCycle();
+
+    console.log("✅ MonitoringService started");
+  }
+
+  stop(): void {
+    if (!this.isRunning) return;
+    this.isRunning = false;
+
+    if (this.yieldGenerateJob) this.yieldGenerateJob.stop();
+    if (this.monitoringJob) this.monitoringJob.stop();
+
+    console.log("🛑 MonitoringService stopped");
+  }
+}
+```
+
+## Cron Expression Patterns
+
+Cron expressions use the following format:
+
+```
+* * * * *
+│ │ │ │ │
+│ │ │ │ └─── Day of week (0-7, 0 and 7 are Sunday)
+│ │ │ └───── Month (1-12)
+│ │ └─────── Day of month (1-31)
+│ └───────── Hour (0-23)
+└─────────── Minute (0-59)
+```
+
+### Common Patterns
+
+```typescript
+// Every minute
+"* * * * *"
+
+// Every 2 minutes
+"*/2 * * * *"
+
+// Every hour at minute 0
+"0 * * * *"
+
+// Every hour at minute 30
+"30 * * * *"
+
+// Every 6 hours
+"0 */6 * * *"
+
+// Every day at midnight
+"0 0 * * *"
+
+// Every Monday at 9 AM
+"0 9 * * 1"
+
+// Every 15 minutes
+"*/15 * * * *"
+```
+
+## Monitoring Cycle Implementation
+
+The monitoring cycle executes a series of agent tasks to assess vault health.
+
+```typescript src/crons/automation.ts
+public async runMonitoringCycle(): Promise<void> {
+  const timestamp = new Date().toISOString();
+  console.log("\n" + "=".repeat(80));
+  console.log(`🔄 Running monitoring cycle @ ${timestamp}`);
+  console.log("=".repeat(80));
+
+  try {
+    const root = await getRootAgent();
+    const runner = root.runner as EnhancedRunner;
+
+    // 1. Market prices
+    console.log("📊 Step 1: Market prices...");
+    const priceCheck = await runner.ask(
+      "Check real LINK and WETH prices using get_token_prices and evaluate volatility (>10%)."
+    );
+
+    // 2. Leverage strategy
+    console.log("⚖️ Step 2: Leverage strategy...");
+    const leverageCheck = await runner.ask(
+      "Use get_leverage_strategy_state to evaluate LTV, borrow amounts, and pause status."
+    );
+
+    // 3. Risk assessment
+    console.log("🚨 Step 3: Liquidation risk...");
+    const riskCheck = await runner.ask(
+      "Check liquidation risk using check_liquidation_risk and identify if deleveraging is required."
+    );
+
+    // 4. Vault & strategies
+    console.log("💼 Step 4: Vault state...");
+    const vaultCheck = await runner.ask(
+      "Fetch get_vault_state and get_strategy_states to determine if rebalancing is required. Include the current Weights and the target weights of the strategies are 80% for leverage and 20% for the aave pool."
+    );
+
+    // 5. Actions to take
+    console.log("🎯 Step 5: Decision making...");
+    const actions = await runner.ask(
+      dedent`
+      Based on price, strategy, and risk:
+      - initiate pausing or resuming leverage
+      - initiate updating leverage parameters
+      - initiate rebalancing if allocations diverge
+      - initiate harvesting yields
+      Provide reasoning and simulate transactions before recommending.
+      `
+    );
+
+    const summary = dedent`
+      🤖 *MetaVault Monitoring Report*
+      🕒 ${timestamp}
+
+      📊 *Price Analysis:*  
+      ${priceCheck}
+
+      ⚖️ *Leverage State:*  
+      ${leverageCheck}
+
+      🚨 *Risk Assessment:*  
+      ${riskCheck}
+
+      💼 *Vault State:*  
+      ${vaultCheck}
+
+      🎯 *Actions:*  
+      ${actions}
+    `;
+
+    await this.sendTelegramSummary(summary);
+
+    console.log("✅ Monitoring cycle finished\n");
+  } catch (err: any) {
+    console.error("❌ Monitoring cycle error:", err.message);
+
+    const errorReport = dedent`
+      ❌ *Monitoring Error*
+      🕒 ${new Date().toISOString()}
+      Error: ${err.message}
+    `;
+    await this.sendTelegramSummary(errorReport);
+  }
+}
+```
+
+## Yield Generation Automation
+
+Automate yield accrual to the pool:
+
+```typescript src/crons/automation.ts
+public async yieldGeneration(): Promise<void> {
+  try {
+    const root = await getRootAgent();
+    const runner = root.runner as EnhancedRunner;
+
+    const result = await runner.ask(
+      "accrue yield to the vault."
+    );
+
+    console.log(`[${new Date().toISOString()}] Yield Generation →`, result);
+  } catch (err: any) {
+    console.error("yieldGeneration error:", err.message);
+    await this.sendTelegramSummary(
+      `❌ Yield generation failed: ${err.message}`
+    );
+  }
+}
+```
+
+## Telegram Notifications
+
+Send monitoring summaries to Telegram:
+
+```typescript src/crons/automation.ts
+private async sendTelegramSummary(summary: string): Promise<void> {
+  try {
+    await this.telegramRunner.ask(
+      dedent`
+      Send the following monitoring summary to Telegram channel ${env.TELEGRAM_CHANNEL_ID}:
+      
+      ${summary}
+    `
+    );
+    console.log("📨 Telegram summary sent");
+  } catch (err: any) {
+    console.error("❌ Error sending Telegram summary:", err.message);
+  }
+}
+```
+
+## Initializing the Service
+
+Start the monitoring service in your main application:
+
+```typescript src/index.ts
+import { createSamplingHandler } from "@iqai/adk";
+import { getRootAgent } from "./agents/agent.js";
+import { createTelegramAgent } from "./agents/telegram-agent/agent.js";
+import { MonitoringService } from "./crons/automation.js";
+
+async function main() {
+  console.log("🤖 Initializing agents...");
+
+  try {
+    const { runner } = await getRootAgent();
+
+    // Create sampling handler for the Telegram MCP
+    const samplingHandler = createSamplingHandler(runner.ask);
+
+    // Initialize Telegram agent
+    const { runner: telegramRunner } = await createTelegramAgent(samplingHandler);
+
+    console.log("✅ Agents initialized successfully!");
+    console.log("🚀 Starting monitoring service...");
+
+    // Start monitoring service
+    const autoService = new MonitoringService(
+      "0 */1 * * *",  // monitoring every 1 hour
+      "*/2 * * * *",   // yield generation every 2 minutes
+      telegramRunner
+    );
+    autoService.start();
+
+    console.log("✅ Monitoring service started");
+
+    // Keep the process running
+    await keepAlive();
+  } catch (error) {
+    console.error("❌ Failed to initialize:", error);
+    process.exit(1);
+  }
+}
+
+main().catch(console.error);
+```
+
+## Keep Alive Pattern
+
+Keep the Node.js process running for continuous monitoring:
+
+```typescript src/index.ts
+import * as http from "node:http";
+
+async function keepAlive() {
+  const PORT = process.env.PORT || 3000;
+
+  const server = http.createServer((req, res) => {
+    if (req.url === "/" || req.url === "/health") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ 
+        status: "ok", 
+        service: "metavault-ai",
+        timestamp: new Date().toISOString()
+      }));
+    } else {
+      res.writeHead(404);
+      res.end();
+    }
+  });
+
+  server.listen(PORT, () => {
+    console.log(`🏥 Health check server running on port ${PORT}`);
+  });
+
+  // Graceful shutdown
+  process.on("SIGINT", () => {
+    console.log("\n👋 Shutting down gracefully...");
+    process.exit(0);
+  });
+
+  // Keep event loop active
+  setInterval(() => {
+    // This keeps the event loop active
+  }, 1000);
+}
+```
+
+## Advanced Scheduling
+
+### Multiple Cron Jobs
+
+```typescript
+class AdvancedMonitoringService {
+  private jobs: ScheduledTask[] = [];
+
+  start(): void {
+    // Price monitoring every 5 minutes
+    this.jobs.push(cron.schedule("*/5 * * * *", async () => {
+      await this.checkPrices();
+    }));
+
+    // Risk assessment every 15 minutes
+    this.jobs.push(cron.schedule("*/15 * * * *", async () => {
+      await this.assessRisk();
+    }));
+
+    // Full rebalance check every hour
+    this.jobs.push(cron.schedule("0 * * * *", async () => {
+      await this.checkRebalance();
+    }));
+
+    // Daily report at midnight
+    this.jobs.push(cron.schedule("0 0 * * *", async () => {
+      await this.sendDailyReport();
+    }));
+  }
+
+  stop(): void {
+    this.jobs.forEach(job => job.stop());
+    this.jobs = [];
+  }
+}
+```
+
+### Conditional Execution
+
+```typescript
+public async runMonitoringCycle(): Promise<void> {
+  const runner = (await getRootAgent()).runner as EnhancedRunner;
+
+  // Check prices first
+  const priceCheck = await runner.ask(
+    "Check LINK and WETH prices and calculate 24h volatility."
+  );
+
+  // Only run risk assessment if volatility is high
+  const volatilityMatch = priceCheck.match(/volatility: ([0-9.]+)%/);
+  if (volatilityMatch && parseFloat(volatilityMatch[1]) > 10) {
+    console.log("⚠️ High volatility detected, running risk assessment...");
+    await runner.ask("Check liquidation risk and recommend actions.");
+  }
+}
+```
+
+### Time-Based Logic
+
+```typescript
+public async runMonitoringCycle(): Promise<void> {
+  const hour = new Date().getHours();
+  
+  // Full monitoring during business hours
+  if (hour >= 9 && hour <= 17) {
+    await this.runFullMonitoring();
+  } else {
+    // Light monitoring outside business hours
+    await this.runLightMonitoring();
+  }
+}
+```
+
+## Error Handling
+
+### Retry Logic
+
+```typescript
+private async runWithRetry(
+  fn: () => Promise<void>,
+  maxRetries: number = 3
+): Promise<void> {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      await fn();
+      return;
+    } catch (err: any) {
+      console.error(`Attempt ${i + 1} failed:`, err.message);
+      if (i === maxRetries - 1) throw err;
+      await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
+    }
+  }
+}
+```
+
+### Circuit Breaker
+
+```typescript
+class MonitoringServiceWithCircuitBreaker {
+  private failureCount = 0;
+  private readonly maxFailures = 5;
+  private circuitOpen = false;
+
+  async runMonitoringCycle(): Promise<void> {
+    if (this.circuitOpen) {
+      console.log("⚠️ Circuit breaker open, skipping cycle");
+      return;
+    }
+
+    try {
+      await this.executeMonitoring();
+      this.failureCount = 0; // Reset on success
+    } catch (err: any) {
+      this.failureCount++;
+      console.error(`Monitoring failed (${this.failureCount}/${this.maxFailures})`);
+
+      if (this.failureCount >= this.maxFailures) {
+        this.circuitOpen = true;
+        console.error("🚨 Circuit breaker opened!");
+        await this.sendAlert("Circuit breaker opened due to repeated failures");
+      }
+    }
+  }
+}
+```
+
+## Monitoring Service Logs
+
+Expected console output:
+
+```bash
+🤖 Starting MonitoringService...
+📅 Comprehensive cycle: 0 */1 * * *
+💹 Yield generation: */2 * * * *
+✅ MonitoringService started
+
+================================================================================
+🔄 Running monitoring cycle @ 2024-03-02T10:00:00.000Z
+================================================================================
+📊 Step 1: Market prices...
+⚖️ Step 2: Leverage strategy...
+🚨 Step 3: Liquidation risk...
+💼 Step 4: Vault state...
+🎯 Step 5: Decision making...
+📨 Telegram summary sent
+✅ Monitoring cycle finished
+
+[2024-03-02T10:02:00.000Z] Yield Generation → {"message": "Yield Accrued Successfully!", "txHash": "0x..."}
+```
+
+## Environment Configuration
+
+```bash .env
+# Cron Schedule (optional, defaults in code)
+MONITORING_CRON="0 */1 * * *"
+YIELD_CRON="*/2 * * * *"
+
+# Telegram Configuration
+TELEGRAM_BOT_TOKEN=your_bot_token
+TELEGRAM_CHANNEL_ID=@your_channel
+```
+
+## Best Practices
+
+### 1. Graceful Shutdown
+
+Always handle shutdown signals to stop cron jobs cleanly:
+
+```typescript
+process.on("SIGTERM", () => {
+  console.log("Received SIGTERM, shutting down...");
+  monitoringService.stop();
+  process.exit(0);
+});
+```
+
+### 2. Avoid Overlapping Executions
+
+Prevent concurrent executions of the same job:
+
+```typescript
+private isExecuting = false;
+
+public async runMonitoringCycle(): Promise<void> {
+  if (this.isExecuting) {
+    console.log("⏭️ Skipping cycle, previous execution still running");
+    return;
+  }
+
+  this.isExecuting = true;
+  try {
+    await this.executeMonitoring();
+  } finally {
+    this.isExecuting = false;
+  }
+}
+```
+
+### 3. Logging and Observability
+
+Log all cron executions with timestamps:
+
+```typescript
+const timestamp = new Date().toISOString();
+console.log(`[${timestamp}] Starting monitoring cycle`);
+```
+
+### 4. Test Cron Expressions
+
+Use [crontab.guru](https://crontab.guru/) to validate cron expressions before deployment.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Building Agents" icon="robot" href="./building-agents">
+    Learn how to build agents for automation
+  </Card>
+  <Card title="Tools & Functions" icon="wrench" href="./tools-and-functions">
+    Create tools that agents use in automated tasks
+  </Card>
+  <Card title="ADK-TS Integration" icon="code" href="./adk-ts-integration">
+    Understand the ADK-TS integration patterns
+  </Card>
+  <Card title="Deployment" icon="rocket" href="/contracts/deployment">
+    Deploy your automated agents to production
+  </Card>
+</CardGroup>

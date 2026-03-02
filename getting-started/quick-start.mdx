@@ -1,0 +1,263 @@
+---
+title: Quick Start
+description: Get MetaVault AI up and running on your local machine
+---
+
+## Overview
+
+This guide will help you run the complete MetaVault AI stack locally, including:
+
+1. Local blockchain with deployed smart contracts
+2. AI agent server for vault management
+3. Next.js frontend for user interaction
+
+## Running the Full Stack
+
+<Steps>
+  <Step title="Start Smart Contracts">
+    Navigate to the contracts directory and start a local Hardhat node:
+
+    ```bash
+    cd packages/contracts
+    ```
+
+    First, compile the smart contracts:
+
+    <CodeGroup>
+      ```bash pnpm
+      pnpm hardhat compile
+      ```
+
+      ```bash npm
+      npm run hardhat compile
+      ```
+
+      ```bash yarn
+      yarn hardhat compile
+      ```
+    </CodeGroup>
+
+    Then start the local blockchain:
+
+    <CodeGroup>
+      ```bash pnpm
+      pnpm hardhat node
+      ```
+
+      ```bash npm
+      npm run hardhat node
+      ```
+
+      ```bash yarn
+      yarn hardhat node
+      ```
+    </CodeGroup>
+
+    <Note>
+      Keep this terminal window open. The local blockchain will run on `http://127.0.0.1:8545`
+    </Note>
+  </Step>
+
+  <Step title="Deploy Contracts">
+    In a new terminal, deploy the mock contracts to your local blockchain:
+
+    ```bash
+    cd packages/contracts
+    ```
+
+    <CodeGroup>
+      ```bash pnpm
+      pnpm hardhat run scripts/deploy_mocks.ts --network localhost
+      ```
+
+      ```bash npm
+      npm run hardhat run scripts/deploy_mocks.ts --network localhost
+      ```
+
+      ```bash yarn
+      yarn hardhat run scripts/deploy_mocks.ts --network localhost
+      ```
+    </CodeGroup>
+
+    <Warning>
+      Save the deployed contract addresses from the output. You'll need them for configuration.
+    </Warning>
+  </Step>
+
+  <Step title="Configure AI Agents">
+    Set up the environment for the AI agents:
+
+    ```bash
+    cd packages/agents/defi-portfolio
+    cp .env.example .env
+    ```
+
+    Edit the `.env` file and add your configuration. See the [Configuration](/getting-started/configuration) guide for details.
+
+    <Note>
+      At minimum, you need to configure:
+      - `OPEN_ROUTER_KEY` - Your OpenRouter API key
+      - `VAULT_ADDRESS` - From the deployment output
+      - `RPC_URL` - Set to `http://127.0.0.1:8545`
+    </Note>
+  </Step>
+
+  <Step title="Start AI Agent Server">
+    Run the agent server:
+
+    ```bash
+    cd packages/agents/defi-portfolio
+    ```
+
+    <CodeGroup>
+      ```bash pnpm
+      pnpm run dev
+      ```
+
+      ```bash npm
+      npm run dev
+      ```
+
+      ```bash yarn
+      yarn dev
+      ```
+    </CodeGroup>
+
+    The agent server will start and be available for the frontend to communicate with.
+
+    <Tip>
+      To run the automation cron job (for strategy monitoring), use:
+      ```bash
+      pnpm run automate:cron
+      ```
+    </Tip>
+  </Step>
+
+  <Step title="Configure Frontend">
+    Set up the environment for the frontend:
+
+    ```bash
+    cd packages/frontend
+    cp .env.example .env.local
+    ```
+
+    Update the `.env.local` file with the contract addresses from Step 2:
+
+    ```env
+    NEXT_PUBLIC_VAULT_ADDRESS=0x...
+    NEXT_PUBLIC_ROUTER_ADDRESS=0x...
+    NEXT_PUBLIC_STRATEGY_LEVERAGE_ADDRESS=0x...
+    NEXT_PUBLIC_STRATEGY_AAVE_ADDRESS=0x...
+    NEXT_PUBLIC_LINK_ADDRESS=0x...
+    ```
+  </Step>
+
+  <Step title="Start Frontend">
+    Launch the Next.js development server:
+
+    ```bash
+    cd packages/frontend
+    ```
+
+    <CodeGroup>
+      ```bash pnpm
+      pnpm dev
+      ```
+
+      ```bash npm
+      npm run dev
+      ```
+
+      ```bash yarn
+      yarn dev
+      ```
+    </CodeGroup>
+
+    Open [http://localhost:3000](http://localhost:3000) in your browser to access MetaVault AI.
+  </Step>
+</Steps>
+
+## Quick Start with All Services
+
+Alternatively, you can start all services at once from the root directory:
+
+<CodeGroup>
+  ```bash pnpm
+  pnpm dev:all
+  ```
+
+  ```bash npm
+  npm run dev:all
+  ```
+
+  ```bash yarn
+  yarn dev:all
+  ```
+</CodeGroup>
+
+This will concurrently run:
+- Local Hardhat node (contracts)
+- AI agent server
+- Next.js frontend
+
+<Warning>
+  You still need to manually deploy contracts and configure environment variables before using this command.
+</Warning>
+
+## Verify Everything is Running
+
+Confirm that all services are operational:
+
+<AccordionGroup>
+  <Accordion title="Check Blockchain">
+    Your Hardhat node terminal should show:
+    ```
+    Started HTTP and WebSocket JSON-RPC server at http://127.0.0.1:8545/
+    ```
+  </Accordion>
+
+  <Accordion title="Check AI Agents">
+    The agent server should be listening on the configured port (default: 3001):
+    ```
+    Agent server running on port 3001
+    ```
+  </Accordion>
+
+  <Accordion title="Check Frontend">
+    The Next.js server should display:
+    ```
+    Ready - started server on 0.0.0.0:3000, url: http://localhost:3000
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Connect Your Wallet
+
+To interact with MetaVault AI:
+
+1. Open MetaMask and add the local Hardhat network:
+   - Network Name: `Hardhat Local`
+   - RPC URL: `http://127.0.0.1:8545`
+   - Chain ID: `31337`
+   - Currency Symbol: `ETH`
+
+2. Import one of the test accounts from the Hardhat node output (it provides 20 pre-funded accounts)
+
+3. Connect your wallet on the MetaVault AI frontend
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration Guide" icon="gear" href="/getting-started/configuration">
+    Detailed configuration options for all packages
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/architecture/system-overview">
+    Learn about MetaVault AI's system architecture
+  </Card>
+  <Card title="AI Agents" icon="robot" href="/agents/overview">
+    Explore the AI agents that manage your vault
+  </Card>
+  <Card title="Smart Contracts" icon="file-contract" href="/contracts/vault">
+    Understand the vault's smart contract system
+  </Card>
+</CardGroup>

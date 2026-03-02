@@ -1,0 +1,574 @@
+---
+title: Chat Agent
+description: User-facing AI assistant for MetaVault interactions, deposits, withdrawals, and balance queries
+---
+
+The Chat Agent is a user-friendly assistant that helps MetaVault users interact with the vault, check balances, deposit, withdraw, and access public information while maintaining strict privacy and security boundaries.
+
+## Overview
+
+```typescript
+export const chatAgent = new LlmAgent({
+  name: "chat_agent",
+  description: "A user-friendly assistant for MetaVault users to interact with the MetaVault, check balances, deposit, withdraw, and get public information.",
+  model: model,
+  tools: [
+    get_user_vault_balance,
+    get_wallet_link_balance,
+    get_public_vault_info,
+    check_allowance,
+    approve_link,
+    user_deposit,
+    user_withdraw,
+    get_token_prices,
+    get_vault_apy,
+    convert_to_shares,
+    convert_to_assets
+  ]
+});
+```
+
+**Source:** `packages/agents/defi-portfolio/src/agents/sub-agents/chat-agent/agent.ts:18-145`
+
+## Security & Privacy Rules
+
+The Chat Agent enforces strict security boundaries:
+
+- Can **ONLY** access data for the user who is asking (using their wallet address)
+- **NEVER** exposes confidential information:
+  - Strategy internals (leverage ratios, debt positions)
+  - Admin-only functions (rebalance, harvest, update parameters)
+  - Other users' balances or private data
+  - Liquidation or risk calculations (admin-only)
+- May **ONLY** reply using public vault information:
+  - Total vault assets
+  - APY
+  - Token prices
+  - User's own balance and shares
+
+**Source:** `agent.ts:28-39`
+
+## Available Tools
+
+### User Account Tools
+
+<AccordionGroup>
+  <Accordion title="get_my_balance">
+    Gets the current user's vault share balance and withdrawable LINK amount.
+
+    **Schema:**
+    ```typescript
+    z.object({
+      userAddress: z.string().describe("The user's wallet address")
+    })
+    ```
+
+    **Implementation:**
+    ```typescript
+    export const get_user_vault_balance = createTool({
+      name: "get_my_balance",
+      description: "Gets the current user's vault share balance and withdrawable LINK amount. Only returns data for the requesting user.",
+      fn: async ({ userAddress }) => {
+        const [balance, assets] = await Promise.all([
+          chain_read(env.VAULT_ADDRESS, VaultABI.abi, "balanceOf", [userAddress]),
+          chain_read(env.VAULT_ADDRESS, VaultABI.abi, "convertToAssets", [
+            await chain_read(env.VAULT_ADDRESS, VaultABI.abi, "balanceOf", [userAddress])
+          ])
+        ]);
+        
+        return {
+          raw: { shares: balance.toString(), withdrawable: assets.toString() },
+          human: { shares: format18(balance), withdrawable: format18(assets) }
+        };
+      }
+    });
+    ```
+    **Source:** `tools.ts:17-46`
+
+    **Returns:** User's vault shares and withdrawable LINK amount (raw and human-readable)
+  </Accordion>
+
+  <Accordion title="get_link_balance">
+    Returns the user's LINK balance in their wallet.
+
+    **Schema:**
+    ```typescript
+    z.object({
+      wallet: z.string().describe("The user's wallet address")
+    })
+    ```
+
+    **Implementation:**
+    ```typescript
+    export const get_wallet_link_balance = createTool({
+      name: "get_link_balance",
+      description: "Returns the user's LINK balance in their wallet.",
+      fn: async ({ wallet }) => {
+        const rawBalance = await chain_read(
+          env.LINK_ADDRESS,
+          MockERC20ABI.abi,
+          "balanceOf",
+          [wallet]
+        );
+        
+        return {
+          wallet,
+          rawBalance: rawBalance.toString(),
+          balance: format18(rawBalance),
+          symbol: "LINK",
+          message: `The wallet ${wallet} has ${format18(rawBalance)} LINK.`
+        };
+      }
+    });
+    ```
+    **Source:** `tools.ts:48-78`
+
+    **Returns:** LINK balance in user's wallet
+  </Accordion>
+
+  <Accordion title="user_deposit">
+    Prepares an unsigned LINK deposit transaction for the user to sign in their wallet.
+
+    **Schema:**
+    ```typescript
+    z.object({
+      amount: z.string().describe("Amount of LINK to deposit")
+    })
+    ```
+
+    **Implementation:**
+    ```typescript
+    export const user_deposit = createTool({
+      name: "user_deposit",
+      description: "Prepares an unsigned LINK deposit transaction for the user to sign in their wallet.",
+      fn: async ({ amount }) => {
+        const parsedAmount = parseUnits(amount);
+        const iface = new ethers.Interface(VaultABI.abi);
+        const data = iface.encodeFunctionData("deposit", [parsedAmount]);
+        
+        return {
+          success: true,
+          unsignedTx: {
+            to: env.VAULT_ADDRESS,
+            data,
+            value: "0"
+          },
+          message: `Please sign this deposit transaction for ${amount} LINK.`
+        };
+      }
+    });
+    ```
+    **Source:** `tools.ts:170-195`
+
+    **Returns:** Unsigned transaction object for user to sign
+  </Accordion>
+
+  <Accordion title="user_withdraw">
+    Withdraws shares from the vault for the user.
+
+    **Schema:**
+    ```typescript
+    z.object({
+      shares: z.string().describe("Number of shares to withdraw (in human-readable format)")
+    })
+    ```
+
+    **Implementation:**
+    ```typescript
+    export const user_withdraw = createTool({
+      name: "user_withdraw",
+      description: "Withdraws shares from the vault for the user. Returns transaction hash.",
+      fn: async ({ shares }) => {
+        const parsedAmount = parseUnits(shares);
+        const iface = new ethers.Interface(VaultABI.abi);
+        const data = iface.encodeFunctionData("withdraw", [parsedAmount]);
+        
+        return {
+          success: true,
+          unsignedTx: {
+            to: env.VAULT_ADDRESS,
+            data,
+            value: "0"
+          },
+          message: `Please sign this withdraw transaction for ${shares} LINK.`
+        };
+      }
+    });
+    ```
+    **Source:** `tools.ts:201-224`
+
+    **Returns:** Unsigned transaction object for user to sign
+  </Accordion>
+
+  <Accordion title="convert_to_shares">
+    Converts LINK amount to Vault Share Tokens (VST).
+
+    **Schema:**
+    ```typescript
+    z.object({
+      amount: z.string().describe("The amount of LINK (in Human Readable Format)")
+    })
+    ```
+
+    **Implementation:**
+    ```typescript
+    export const convert_to_shares = createTool({
+      name: "convert_to_shares",
+      description: "To convert LINK amount to Vault Share Tokens(VST).",
+      fn: async ({ amount }) => {
+        const shares = await chain_read(
+          env.VAULT_ADDRESS,
+          VaultABI.abi,
+          "convertToShares",
+          [parseUnits(amount)]
+        );
+        return format18(shares);
+      }
+    });
+    ```
+    **Source:** `tools.ts:270-286`
+
+    **Returns:** Equivalent VST shares for given LINK amount
+  </Accordion>
+
+  <Accordion title="convert_to_assets">
+    Converts Vault Share Tokens (VST) to LINK.
+
+    **Schema:**
+    ```typescript
+    z.object({
+      shares: z.string().describe("The amount of shares or VST (in Human Readable Format)")
+    })
+    ```
+
+    **Implementation:**
+    ```typescript
+    export const convert_to_assets = createTool({
+      name: "convert_to_assets",
+      description: "To convert Vault Share Tokens(VST) to LINK.",
+      fn: async ({ shares }) => {
+        const linkAmount = await chain_read(
+          env.VAULT_ADDRESS,
+          VaultABI.abi,
+          "convertToAssets",
+          [parseUnits(shares)]
+        );
+        return format18(linkAmount);
+      }
+    });
+    ```
+    **Source:** `tools.ts:288-304`
+
+    **Returns:** Equivalent LINK amount for given VST shares
+  </Accordion>
+</AccordionGroup>
+
+### Public Information Tools
+
+<AccordionGroup>
+  <Accordion title="get_public_vault_info">
+    Gets public vault information including total managed assets and total supply.
+
+    **Implementation:**
+    ```typescript
+    export const get_public_vault_info = createTool({
+      name: "get_public_vault_info",
+      description: "Gets public vault information including total managed assets and total supply. This is public information available to all users.",
+      fn: async () => {
+        const [totalManaged, totalSupply] = await Promise.all([
+          chain_read(env.VAULT_ADDRESS, VaultABI.abi, "totalManagedAssets", []),
+          chain_read(env.VAULT_ADDRESS, VaultABI.abi, "totalSupply", []),
+        ]);
+        
+        return {
+          raw: { totalManaged: totalManaged.toString(), totalSupply: totalSupply.toString() },
+          human: { totalManaged: format18(totalManaged), totalSupply: format18(totalSupply) }
+        };
+      }
+    });
+    ```
+    **Source:** `tools.ts:83-107`
+
+    **Returns:** Total managed assets and total supply (public data)
+  </Accordion>
+
+  <Accordion title="get_token_prices">
+    Fetches real-time LINK price from CoinGecko API.
+
+    **Implementation:**
+    ```typescript
+    export const get_token_prices = createTool({
+      name: "get_token_prices",
+      description: "Fetches real-time LINK price from CoinGecko API. Returns public market prices.",
+      fn: async () => {
+        const response = await fetch(
+          "https://api.coingecko.com/api/v3/simple/price?ids=chainlink,weth&vs_currencies=usd&include_24hr_change=true"
+        );
+        const data = await response.json();
+        
+        const linkPriceUSD = data.chainlink?.usd;
+        const link24hChange = data.chainlink?.usd_24h_change;
+        
+        return {
+          raw: { linkPriceUSD: BigInt(Math.floor(linkPriceUSD * 1e18)).toString() },
+          human: { 
+            linkPriceUSD: linkPriceUSD.toFixed(2),
+            link24hChange: link24hChange.toFixed(2) + "%" 
+          },
+          source: "CoinGecko API"
+        };
+      }
+    });
+    ```
+    **Source:** `tools.ts:229-268`
+
+    **Returns:** Current LINK price in USD and 24h price change
+  </Accordion>
+
+  <Accordion title="get_vault_apy">
+    Gets the current vault APY based on TVL growth.
+
+    **Implementation:**
+    ```typescript
+    import { calculateVaultAPY } from "../strategy-sentinel-agent/tools";
+
+    export const get_vault_apy = createTool({
+      name: "get_vault_apy",
+      description: "Gets the current vault APY based on TVL growth. This is public information.",
+      fn: async (_params: {}, toolContext: ToolContext) => {
+        return calculateVaultAPY(toolContext);
+      }
+    });
+    ```
+    **Source:** `tools.ts:309-317`
+
+    **Note:** Reuses APY calculation logic from Strategy Sentinel Agent
+
+    **Returns:** Current vault APY percentage
+  </Accordion>
+</AccordionGroup>
+
+### Approval / Deposit Support Tools
+
+<AccordionGroup>
+  <Accordion title="check_allowance">
+    Checks if user's LINK token allowance is enough for a deposit.
+
+    **Schema:**
+    ```typescript
+    z.object({
+      wallet: z.string(),
+      amount: z.string()
+    })
+    ```
+
+    **Implementation:**
+    ```typescript
+    export const check_allowance = createTool({
+      name: "check_allowance",
+      description: "Checks if user's LINK token allowance is enough for a deposit.",
+      fn: async ({ wallet, amount }) => {
+        const needed = parseUnits(amount);
+        const allowance = await chain_read(
+          env.LINK_ADDRESS,
+          MockERC20ABI.abi,
+          "allowance",
+          [wallet, env.VAULT_ADDRESS]
+        );
+        
+        return {
+          allowance: allowance.toString(),
+          enough: allowance >= needed,
+          needed: needed.toString(),
+          wallet
+        };
+      }
+    });
+    ```
+    **Source:** `tools.ts:109-135`
+
+    **Returns:** Whether allowance is sufficient and amounts
+  </Accordion>
+
+  <Accordion title="approve_link">
+    Prepares an unsigned approval transaction so the vault can spend LINK.
+
+    **Schema:**
+    ```typescript
+    z.object({
+      amount: z.string()
+    })
+    ```
+
+    **Implementation:**
+    ```typescript
+    export const approve_link = createTool({
+      name: "approve_link",
+      description: "Prepares an unsigned approval transaction so the vault can spend LINK.",
+      fn: async ({ amount }) => {
+        const iface = new ethers.Interface(MockERC20ABI.abi);
+        const data = iface.encodeFunctionData("approve", [
+          env.VAULT_ADDRESS,
+          parseUnits(amount)
+        ]);
+        
+        return {
+          unsignedTx: {
+            to: env.LINK_ADDRESS,
+            data,
+            value: "0"
+          },
+          message: `Please sign this transaction to approve ${amount} LINK for spending.`
+        };
+      }
+    });
+    ```
+    **Source:** `tools.ts:137-163`
+
+    **Returns:** Unsigned approval transaction for user to sign
+  </Accordion>
+</AccordionGroup>
+
+## Communication Style
+
+The Chat Agent follows specific formatting rules:
+
+- **No Markdown, HTML, or special symbols** (asterisks, underscores, backticks)
+- Use clear line breaks, indentation, and emojis for structure
+- Round numbers to 2 decimal points when displaying (NOT for transactions)
+- Be friendly, simple, and helpful
+- Explain what the user needs to sign (Approval or Deposit)
+
+**Source:** `agent.ts:23-26`
+
+## Transaction Logic
+
+### Deposit Flow
+
+When a user asks to deposit:
+
+**Step 1:** Call `check_allowance(wallet, amount)`
+
+**Step 2A:** If allowance is insufficient:
+- Call `approve_link(amount)`
+- Respond telling user they must first sign the approval transaction
+- After user signs approval, call `user_deposit(amount)`
+
+**Step 2B:** If allowance is already enough:
+- Call `user_deposit(amount)` directly
+- Prepare deposit transaction
+
+**Source:** `agent.ts:67-75`
+
+### Withdraw Flow
+
+When a user asks to withdraw:
+- Call `user_withdraw(shares)` directly
+- No approval needed for withdrawals
+
+**Source:** `agent.ts:77-78`
+
+## JSON Response Format
+
+When using tools for DEPOSIT, WITHDRAW, APPROVAL, or CHECK_ALLOWANCE, the agent **MUST** return only valid JSON:
+
+```json
+{
+  "reply": "<text response to user>",
+  "unsignedTx": <null OR unsigned transaction object>,
+  "needsApproval": <true|false OR null>,
+  "step": "<approval | deposit | withdrawal | info>"
+}
+```
+
+**Fields:**
+- `reply`: Human-friendly message
+- `unsignedTx`: Transaction user must sign (or null)
+- `needsApproval`: true only when approval is required
+- `step`: One of "approval", "deposit", "withdrawal", or "info"
+
+**Source:** `agent.ts:103-124`
+
+## Restrictions
+
+If user asks about admin operations, the agent responds:
+
+> "I can help with deposits, withdrawals, balances, and public data. Strategy management is restricted to vault administrators."
+
+**Admin operations include:**
+- rebalance
+- harvest
+- risk parameters
+
+**Source:** `agent.ts:84-90`
+
+## Example Interactions
+
+### Deposit with Approval
+
+```
+User: "Deposit 10 LINK"
+
+Agent:
+1. check_allowance(wallet, "10")
+2. If allowance = 0:
+   - approve_link("10")
+   - Return: {
+       "reply": "Please sign this approval transaction to allow the vault to spend 10 LINK.",
+       "unsignedTx": { to: LINK_ADDRESS, data: "...", value: "0" },
+       "needsApproval": true,
+       "step": "approval"
+     }
+3. After user signs approval:
+   - user_deposit("10")
+   - Return: {
+       "reply": "Please sign this deposit transaction for 10 LINK.",
+       "unsignedTx": { to: VAULT_ADDRESS, data: "...", value: "0" },
+       "needsApproval": false,
+       "step": "deposit"
+     }
+```
+
+**Source:** `agent.ts:92-102`
+
+### Check Balance
+
+```
+User: "What's my balance?"
+
+Agent:
+1. get_my_balance(userAddress)
+2. Return: {
+     "reply": "You have 123.45 LINK in shares, which you can withdraw as 125.67 LINK.",
+     "unsignedTx": null,
+     "needsApproval": null,
+     "step": "info"
+   }
+```
+
+### Withdraw
+
+```
+User: "Withdraw 50 shares"
+
+Agent:
+1. user_withdraw("50")
+2. Return: {
+     "reply": "Please sign this withdraw transaction for 50 shares.",
+     "unsignedTx": { to: VAULT_ADDRESS, data: "...", value: "0" },
+     "needsApproval": false,
+     "step": "withdrawal"
+   }
+```
+
+## Responsibilities Summary
+
+The Chat Agent must:
+
+1. **User Assistance** - Help users deposit, withdraw, or check vault information
+2. **Address Verification** - Always ask for wallet address when accessing personal data
+3. **Approval Management** - Determine whether user needs approval transaction before deposit
+4. **Transaction Preparation** - Produce unsigned transactions for the wallet to sign
+5. **Privacy Protection** - Never expose admin functions or internal vault strategy logic
+
+**Source:** `agent.ts:59-90`

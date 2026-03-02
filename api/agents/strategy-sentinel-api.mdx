@@ -1,0 +1,682 @@
+---
+title: 'Strategy Sentinel Agent API'
+description: 'Admin API for strategy monitoring and management'
+icon: 'shield-check'
+---
+
+## Overview
+
+The Strategy Sentinel Agent is an autonomous agent that monitors and manages vault strategies. It provides comprehensive tools for reading strategy state, managing risk, rebalancing allocations, and executing administrative operations.
+
+<Warning>
+  The Strategy Sentinel Agent has ADMIN privileges and can execute privileged operations. Access should be restricted to authorized administrators only.
+</Warning>
+
+## Agent Responsibilities
+
+- Monitor strategy health and vault state
+- Detect and mitigate liquidation risks
+- Manage leverage strategy parameters
+- Rebalance portfolio allocations
+- Harvest yield from strategies
+- Make price-based decisions using real market data
+
+## Agent Tools
+
+### Read & Monitoring Tools
+
+#### get_vault_state
+
+Reads the vault's global state including total assets, supply, and managed balance.
+
+<ResponseField name="raw.totalAssets" type="string">
+  Total assets in vault (raw 18 decimals)
+</ResponseField>
+
+<ResponseField name="raw.totalSupply" type="string">
+  Total share supply (raw 18 decimals)
+</ResponseField>
+
+<ResponseField name="raw.totalManaged" type="string">
+  Total managed assets across all strategies (raw 18 decimals)
+</ResponseField>
+
+<ResponseField name="human.totalAssets" type="string">
+  Human-readable total assets
+</ResponseField>
+
+<ResponseField name="human.totalSupply" type="string">
+  Human-readable total supply
+</ResponseField>
+
+<ResponseField name="human.totalManaged" type="string">
+  Human-readable total managed
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "raw": {
+    "totalAssets": "500000000000000000000",
+    "totalSupply": "475000000000000000000",
+    "totalManaged": "1000000000000000000000"
+  },
+  "human": {
+    "totalAssets": "500.00",
+    "totalSupply": "475.00",
+    "totalManaged": "1000.00"
+  }
+}
+```
+</ResponseExample>
+
+#### get_strategy_states
+
+Fetches strategy addresses, their balances, and target BPS allocations from the Strategy Router.
+
+<ResponseField name="strategy" type="string">
+  Strategy contract address
+</ResponseField>
+
+<ResponseField name="raw.balance" type="string">
+  Strategy balance (raw 18 decimals)
+</ResponseField>
+
+<ResponseField name="raw.targetBps" type="string">
+  Target allocation in basis points (10000 = 100%)
+</ResponseField>
+
+<ResponseField name="human.balance" type="string">
+  Human-readable balance
+</ResponseField>
+
+<ResponseField name="human.targetPercent" type="string">
+  Target allocation as percentage
+</ResponseField>
+
+<ResponseExample>
+```json
+[
+  {
+    "strategy": "0xSTRATEGY_LEVERAGE_ADDRESS",
+    "raw": {
+      "balance": "800000000000000000000",
+      "targetBps": "8000"
+    },
+    "human": {
+      "balance": "800.00",
+      "targetPercent": "80.00%"
+    }
+  },
+  {
+    "strategy": "0xSTRATEGY_AAVE_ADDRESS",
+    "raw": {
+      "balance": "200000000000000000000",
+      "targetBps": "2000"
+    },
+    "human": {
+      "balance": "200.00",
+      "targetPercent": "20.00%"
+    }
+  }
+]
+```
+</ResponseExample>
+
+#### get_leverage_strategy_state
+
+Gets comprehensive state of the leverage strategy including deposited amount, borrowed WETH, LTV, and pause status.
+
+<ResponseField name="raw.deposited" type="string">
+  Total LINK deposited (raw 18 decimals)
+</ResponseField>
+
+<ResponseField name="raw.borrowedWETH" type="string">
+  Total WETH borrowed (raw 18 decimals)
+</ResponseField>
+
+<ResponseField name="raw.netExposure" type="string">
+  Net exposure (raw 18 decimals)
+</ResponseField>
+
+<ResponseField name="raw.ltv" type="string">
+  Loan-to-value ratio (raw 18 decimals)
+</ResponseField>
+
+<ResponseField name="raw.paused" type="boolean">
+  Whether strategy is paused
+</ResponseField>
+
+<ResponseField name="raw.maxDepth" type="string">
+  Maximum leverage loop iterations (1-6)
+</ResponseField>
+
+<ResponseField name="raw.borrowFactor" type="string">
+  Borrow factor in basis points
+</ResponseField>
+
+<ResponseField name="human.deposited" type="string">
+  Human-readable deposited amount
+</ResponseField>
+
+<ResponseField name="human.borrowedWETH" type="string">
+  Human-readable borrowed WETH
+</ResponseField>
+
+<ResponseField name="human.netExposure" type="string">
+  Human-readable net exposure
+</ResponseField>
+
+<ResponseField name="human.ltv" type="number">
+  LTV as decimal (e.g., 0.65 = 65%)
+</ResponseField>
+
+<ResponseField name="human.paused" type="boolean">
+  Pause status
+</ResponseField>
+
+<ResponseField name="human.maxDepth" type="number">
+  Max depth as number
+</ResponseField>
+
+<ResponseField name="human.borrowFactor" type="number">
+  Borrow factor as percentage
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "raw": {
+    "deposited": "800000000000000000000",
+    "borrowedWETH": "150000000000000000",
+    "netExposure": "650000000000000000000",
+    "ltv": "650000000000000000",
+    "paused": false,
+    "maxDepth": "4",
+    "borrowFactor": "6000"
+  },
+  "human": {
+    "deposited": "800.00",
+    "borrowedWETH": "0.15",
+    "netExposure": "650.00",
+    "ltv": 0.65,
+    "paused": false,
+    "maxDepth": 4,
+    "borrowFactor": 60
+  }
+}
+```
+</ResponseExample>
+
+#### get_token_prices
+
+Fetches real-time LINK and WETH prices from CoinGecko API.
+
+<ResponseField name="raw.linkPriceUSD" type="string">
+  LINK price in USD (scaled by 1e18)
+</ResponseField>
+
+<ResponseField name="raw.wethPriceUSD" type="string">
+  WETH price in USD (scaled by 1e18)
+</ResponseField>
+
+<ResponseField name="raw.linkPricePerWETH" type="string">
+  How many LINK equal 1 WETH (scaled by 1e18)
+</ResponseField>
+
+<ResponseField name="human.linkPriceUSD" type="string">
+  Human-readable LINK price
+</ResponseField>
+
+<ResponseField name="human.wethPriceUSD" type="string">
+  Human-readable WETH price
+</ResponseField>
+
+<ResponseField name="human.linkPricePerWETH" type="string">
+  Human-readable LINK/WETH ratio
+</ResponseField>
+
+<ResponseField name="human.link24hChange" type="string">
+  24-hour LINK price change
+</ResponseField>
+
+<ResponseField name="human.weth24hChange" type="string">
+  24-hour WETH price change
+</ResponseField>
+
+<ResponseField name="human.interpretation" type="string">
+  Human-readable price ratio interpretation
+</ResponseField>
+
+<ResponseField name="source" type="string">
+  Data source
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "raw": {
+    "linkPriceUSD": "15000000000000000000",
+    "wethPriceUSD": "3000000000000000000000",
+    "linkPricePerWETH": "200000000000000000000"
+  },
+  "human": {
+    "linkPriceUSD": "15.00",
+    "wethPriceUSD": "3000.00",
+    "linkPricePerWETH": "200.000000",
+    "link24hChange": "2.50%",
+    "weth24hChange": "1.20%",
+    "interpretation": "1 WETH = 200.00 LINK"
+  },
+  "source": "CoinGecko API (real market prices)"
+}
+```
+</ResponseExample>
+
+#### get_user_balances
+
+Fetches vault share balance and withdrawable amount for a specific user.
+
+<ParamField path="user" type="string" required>
+  User wallet address
+</ParamField>
+
+<ResponseField name="raw.shares" type="string">
+  User's share balance (raw 18 decimals)
+</ResponseField>
+
+<ResponseField name="raw.withdrawable" type="string">
+  Withdrawable LINK amount (raw 18 decimals)
+</ResponseField>
+
+<ResponseField name="human.shares" type="string">
+  Human-readable shares
+</ResponseField>
+
+<ResponseField name="human.withdrawable" type="string">
+  Human-readable withdrawable amount
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "raw": {
+    "shares": "95230000000000000000",
+    "withdrawable": "100500000000000000000"
+  },
+  "human": {
+    "shares": "95.23",
+    "withdrawable": "100.50"
+  }
+}
+```
+</ResponseExample>
+
+#### get_vault_apy
+
+Calculates the vault APY based on TVL growth over time.
+
+<ResponseField name="apy" type="number">
+  APY as decimal
+</ResponseField>
+
+<ResponseField name="readable" type="string">
+  Human-readable APY percentage
+</ResponseField>
+
+<ResponseField name="tvl" type="number">
+  Current total value locked
+</ResponseField>
+
+<ResponseField name="growth" type="number">
+  TVL growth since last measurement
+</ResponseField>
+
+<ResponseField name="dt" type="number">
+  Time elapsed in seconds
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "apy": 0.1245,
+  "readable": "12.45%",
+  "tvl": 1000000000000000000000,
+  "growth": 0.05,
+  "dt": 86400
+}
+```
+</ResponseExample>
+
+### Vault Management Tools
+
+#### vault_deposit
+
+Deposit LINK into vault (admin operation).
+
+<ParamField path="amount" type="string" required>
+  Amount of LINK to deposit (human-readable)
+</ParamField>
+
+<ResponseField name="hash" type="string">
+  Transaction hash
+</ResponseField>
+
+<ResponseExample>
+```json
+"0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+```
+</ResponseExample>
+
+#### vault_withdraw
+
+Withdraw shares from vault (admin operation).
+
+<ParamField path="shares" type="string" required>
+  Number of shares to withdraw
+</ParamField>
+
+<ResponseField name="hash" type="string">
+  Transaction hash
+</ResponseField>
+
+<ResponseExample>
+```json
+"0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+```
+</ResponseExample>
+
+#### rebalance_vault
+
+Triggers vault rebalance to reallocate funds according to target weights.
+
+<ResponseField name="hash" type="string">
+  Transaction hash
+</ResponseField>
+
+<ResponseExample>
+```json
+"0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+```
+</ResponseExample>
+
+<Info>
+  Rebalancing should be called after updating strategy target weights to execute the allocation changes.
+</Info>
+
+#### harvest_strategy
+
+Calls harvestAll() to collect yield from all strategies and return it to the vault.
+
+<ResponseField name="hash" type="string">
+  Transaction hash
+</ResponseField>
+
+<ResponseExample>
+```json
+"0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+```
+</ResponseExample>
+
+### Risk Management Tools
+
+#### check_liquidation_risk
+
+Checks leverage strategy liquidation risk based on current LTV.
+
+<ResponseField name="ltv" type="number">
+  Current loan-to-value ratio
+</ResponseField>
+
+<ResponseField name="safe" type="boolean">
+  Whether LTV is safe (< 70%)
+</ResponseField>
+
+<ResponseField name="warning" type="boolean">
+  Whether LTV is in warning range (70-80%)
+</ResponseField>
+
+<ResponseField name="critical" type="boolean">
+  Whether LTV is critical (>= 80%)
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "ltv": 0.65,
+  "safe": true,
+  "warning": false,
+  "critical": false
+}
+```
+</ResponseExample>
+
+#### auto_deleverage
+
+Repay debt to reduce liquidation risk.
+
+<ResponseField name="hash" type="string">
+  Transaction hash
+</ResponseField>
+
+<ResponseExample>
+```json
+"0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+```
+</ResponseExample>
+
+<Warning>
+  This operation will reduce leverage by repaying borrowed WETH. Use when LTV is too high or prices are volatile.
+</Warning>
+
+### Strategy Configuration Tools
+
+#### update_strategy_target_weights
+
+Updates target allocation weights for strategies in basis points (10000 = 100%).
+
+<ParamField path="leverageStrategyBps" type="number" required>
+  Target weight for leverage strategy (0-10000)
+</ParamField>
+
+<ParamField path="aaveStrategyBps" type="number" required>
+  Target weight for Aave strategy (0-10000)
+</ParamField>
+
+<ResponseField name="tx" type="string">
+  Transaction hash
+</ResponseField>
+
+<ResponseField name="newWeights" type="object">
+  New weight configuration
+  <Expandable title="properties">
+    <ResponseField name="leverage" type="number">
+      Leverage strategy weight in BPS
+    </ResponseField>
+    <ResponseField name="aave" type="number">
+      Aave strategy weight in BPS
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "tx": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+  "newWeights": {
+    "leverage": 7000,
+    "aave": 3000
+  }
+}
+```
+</ResponseExample>
+
+<Info>
+  The two weights must sum to exactly 10000 (100%). After updating weights, call `rebalance_vault` to execute the reallocation.
+</Info>
+
+#### toggle_leverage_strategy_pause
+
+Pauses or unpauses the leverage strategy.
+
+<ResponseField name="tx" type="string">
+  Transaction hash
+</ResponseField>
+
+<ResponseField name="paused" type="boolean">
+  New pause state
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Status description ("paused" or "active")
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "tx": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+  "paused": true,
+  "status": "paused"
+}
+```
+</ResponseExample>
+
+<Warning>
+  When paused, the leverage strategy cannot invest or deleverage. Use this during high market volatility or when risk is elevated.
+</Warning>
+
+#### update_leverage_params
+
+Updates leverage strategy parameters for fine-tuning risk exposure.
+
+<ParamField path="maxDepth" type="number" required>
+  Maximum leverage loop iterations (1-6)
+</ParamField>
+
+<ParamField path="borrowFactor" type="number" required>
+  Borrow factor in basis points (0-8000, e.g., 6000 = 60%)
+</ParamField>
+
+<ResponseField name="tx" type="string">
+  Transaction hash
+</ResponseField>
+
+<ResponseField name="newParams" type="object">
+  New parameter configuration
+  <Expandable title="properties">
+    <ResponseField name="maxDepth" type="number">
+      New max depth value
+    </ResponseField>
+    <ResponseField name="borrowFactor" type="string">
+      New borrow factor as percentage
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "tx": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+  "newParams": {
+    "maxDepth": 3,
+    "borrowFactor": "50%"
+  }
+}
+```
+</ResponseExample>
+
+<Info>
+  - **maxDepth**: Controls how many times the strategy loops to build leverage. Higher = more leverage, more gas.
+  - **borrowFactor**: Percentage of collateral to borrow in each loop. Higher = more aggressive leverage.
+  
+  Reduce these values during volatile market conditions to decrease risk.
+</Info>
+
+## Risk Management Strategy
+
+The Strategy Sentinel Agent follows a rule-based risk management approach:
+
+### LTV Thresholds
+
+- **Safe**: LTV < 70% - Normal operations
+- **Warning**: LTV 70-80% - Monitor closely, consider reducing leverage
+- **Critical**: LTV >= 80% - Immediate deleveraging required
+
+### Price-Based Decisions
+
+The agent uses real-time price data from CoinGecko to make informed decisions:
+
+<Steps>
+  <Step title="Fetch prices">
+    Call `get_token_prices` to get current LINK/WETH prices
+  </Step>
+  
+  <Step title="Assess volatility">
+    Check 24h price changes to determine market volatility
+  </Step>
+  
+  <Step title="Evaluate risk">
+    If price volatility > 10% or prices dropping rapidly:
+    - Pause leverage strategy (`toggle_leverage_strategy_pause`)
+    - Reduce leverage params (`update_leverage_params`)
+    - Adjust target weights (`update_strategy_target_weights`)
+  </Step>
+  
+  <Step title="Execute changes">
+    Call `rebalance_vault` to apply allocation changes
+  </Step>
+</Steps>
+
+### Target Weight Management
+
+Default allocation:
+- Leverage Strategy: 80% (8000 BPS)
+- Aave Strategy: 20% (2000 BPS)
+
+Adjust weights based on:
+- Market volatility (reduce leverage allocation during high volatility)
+- Price trends (shift to safer strategies when prices are declining)
+- LTV levels (reduce leverage allocation if LTV is consistently high)
+
+## Example: Complete Risk Mitigation Flow
+
+```javascript
+// 1. Check current state
+const prices = await get_token_prices();
+const leverageState = await get_leverage_strategy_state();
+const risk = await check_liquidation_risk();
+
+// 2. Assess risk
+if (risk.warning || prices.human.link24hChange < -5) {
+  // High volatility or price drop detected
+  
+  // 3. Reduce leverage parameters
+  await update_leverage_params({
+    maxDepth: 2,  // Reduce from 4 to 2
+    borrowFactor: 4000  // Reduce from 6000 to 4000 (60% to 40%)
+  });
+  
+  // 4. Adjust target weights
+  await update_strategy_target_weights({
+    leverageStrategyBps: 6000,  // Reduce from 80% to 60%
+    aaveStrategyBps: 4000  // Increase from 20% to 40%
+  });
+  
+  // 5. Execute rebalance
+  await rebalance_vault();
+  
+  // 6. If still critical, pause leverage strategy
+  if (risk.critical) {
+    await toggle_leverage_strategy_pause();
+  }
+}
+```
+
+## Best Practices
+
+1. **Always check prices before decisions**: Use `get_token_prices` to inform risk management
+2. **Monitor LTV regularly**: Call `check_liquidation_risk` frequently
+3. **Gradual adjustments**: Make incremental changes to leverage params rather than drastic shifts
+4. **Rebalance after weight changes**: Always call `rebalance_vault` after updating target weights
+5. **Harvest regularly**: Call `harvest_strategy` periodically to compound returns
+6. **Emergency pause**: Use `toggle_leverage_strategy_pause` immediately if LTV exceeds 80%

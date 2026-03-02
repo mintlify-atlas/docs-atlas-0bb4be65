@@ -1,0 +1,109 @@
+---
+title: Connecting Your Wallet
+description: Learn how to connect your Web3 wallet to MetaVault AI
+---
+
+Before you can deposit funds or interact with MetaVault AI, you need to connect a Web3 wallet. MetaVault AI supports multiple wallet providers including MetaMask, WalletConnect, and other popular options.
+
+## Prerequisites
+
+- A Web3 wallet extension (e.g., MetaMask) installed in your browser
+- The wallet must be connected to the Sepolia testnet
+- Sepolia ETH for gas fees ([get testnet ETH here](https://cloud.google.com/application/web3/faucet/ethereum/sepolia))
+
+## Connecting Your Wallet
+
+<Steps>
+  <Step title="Click the Connect Wallet Button">
+    On the MetaVault AI homepage, locate the purple gradient **"Connect Wallet"** button in the top-right corner of the navigation bar.
+    
+    ![Connect Wallet button appears in the top-right corner with a purple gradient background and wallet icon](/images/user-guide/connect-wallet-button.png)
+  </Step>
+
+  <Step title="Choose Your Wallet Provider">
+    If you have multiple wallet providers installed, a modal will appear showing all available options. Click on your preferred wallet provider (e.g., MetaMask, WalletConnect).
+    
+    ![Modal displays available wallet providers with icons and availability status](/images/user-guide/wallet-provider-modal.png)
+    
+    Each provider shows:
+    - Wallet name and icon
+    - Availability status ("Available" or "Not installed")
+  </Step>
+
+  <Step title="Approve the Connection">
+    Your wallet will prompt you to approve the connection. Review the permissions requested and click **"Connect"** or **"Approve"** in your wallet.
+    
+    <Note>
+      MetaVault AI only requests permission to view your wallet address and balance. It cannot access your funds without your explicit approval for each transaction.
+    </Note>
+  </Step>
+
+  <Step title="Network Auto-Switch">
+    If you're connected to the wrong network, MetaVault AI will automatically prompt you to switch to Sepolia testnet after a brief delay. Approve the network switch in your wallet.
+    
+    ![Alert indicator shows wrong network with yellow warning icon](/images/user-guide/wrong-network-warning.png)
+  </Step>
+
+  <Step title="Verify Connection">
+    Once connected successfully, you'll see:
+    - Your wallet address (shortened format, e.g., "0x1234...5678")
+    - Your LINK token balance (on desktop view)
+    - A green pulsing dot indicating active connection
+    - The wallet provider name (e.g., "MetaMask")
+    - A disconnect button (logout icon)
+    
+    ![Connected wallet display shows address, LINK balance, green status indicator, and disconnect button](/images/user-guide/wallet-connected-status.png)
+  </Step>
+</Steps>
+
+## Disconnecting Your Wallet
+
+To disconnect your wallet:
+
+1. Click the **logout icon** (arrow pointing to door) next to your wallet address
+2. Your wallet will disconnect immediately
+3. The interface will return to the "Connect Wallet" button
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="My wallet isn't appearing in the list">
+    Make sure your wallet extension is:
+    - Properly installed in your browser
+    - Unlocked and active
+    - Compatible with Web3 standards (WalletConnect supported)
+    
+    Try refreshing the page after unlocking your wallet.
+  </Accordion>
+
+  <Accordion title="I'm getting a 'Wrong Network' warning">
+    MetaVault AI operates on the Sepolia testnet. If you see a yellow warning indicator:
+    1. Wait for the auto-switch prompt (appears after 1 second)
+    2. Approve the network change in your wallet
+    3. Or manually switch to Sepolia in your wallet settings
+  </Accordion>
+
+  <Accordion title="Connection keeps failing">
+    Try these steps:
+    1. Refresh the page
+    2. Lock and unlock your wallet
+    3. Disable and re-enable your wallet extension
+    4. Clear your browser cache
+    5. Try a different wallet provider if available
+  </Accordion>
+
+  <Accordion title="I need Sepolia ETH for gas fees">
+    You can get free Sepolia testnet ETH from:
+    - [Google Cloud Web3 Faucet](https://cloud.google.com/application/web3/faucet/ethereum/sepolia)
+    - Other Sepolia faucets (search "Sepolia faucet")
+    
+    A link to the faucet is also available in the dashboard under the Quick Actions section.
+  </Accordion>
+</AccordionGroup>
+
+## What's Next?
+
+Now that your wallet is connected, you can:
+- [Deposit LINK tokens](/user-guide/depositing-funds) into the vault
+- [Track your performance](/user-guide/tracking-performance)
+- [Use the AI chat agent](/user-guide/chat-agent) for assistance

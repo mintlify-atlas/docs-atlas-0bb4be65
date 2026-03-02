@@ -1,0 +1,278 @@
+---
+title: Aave V3 Strategy
+description: Safe lending strategy earning passive supply APY on Aave V3
+---
+
+## Overview
+
+The Aave V3 Strategy (`StrategyAaveV3`) is a low-risk, passive lending strategy that supplies assets to Aave V3 to earn supply-side interest. This strategy is ideal for conservative users seeking stable, predictable yields.
+
+**Contract**: `StrategyAaveV3.sol` (`packages/contracts/contracts/strategy/StrategyAave.sol`)
+
+## Key Characteristics
+
+| Property | Value |
+|----------|-------|
+| Risk Level | Low |
+| Underlying Asset | USDC |
+| Protocol | Aave V3 |
+| Leverage | None |
+| Yield Source | Aave supply APY |
+| Complexity | Simple |
+
+## How It Works
+
+### 1. Investment Flow
+
+When funds are allocated to this strategy:
+
+```solidity
+// From StrategyAave.sol:54-59
+function invest(uint256 amount) external override onlyRouter {
+    // vault already transferred `amount` tokens to this contract
+    // supply amount to Aave
+    pool.supply(address(token), amount, address(this), 0);
+    deposited += amount;
+}
+```
+
+**Process**:
+1. Vault transfers USDC to the strategy contract
+2. Strategy supplies USDC to Aave V3 Pool
+3. Strategy receives aTokens (aUSDC) representing the deposit
+4. Principal is tracked in the `deposited` variable
+
+### 2. Yield Accrual
+
+Aave V3 automatically accrues interest to aToken holders. The strategy tracks profit using the aToken balance:
+
+```solidity
+// From StrategyAave.sol:41-49
+function estimateAPY() external view returns (uint256) {
+    (address aTokenAddr,,) = dataProvider.getReserveTokensAddresses(address(token));
+    uint256 aBal = IERC20(aTokenAddr).balanceOf(address(this));
+    
+    if (deposited == 0) return 0;
+    uint256 profit = aBal > deposited ? aBal - deposited : 0;
+    
+    return (profit * 1e18) / deposited; 
+}
+```
+
+**aToken Balance**: Reflects both principal and accrued interest (1:1 with underlying asset)
+
+### 3. Harvesting
+
+The harvest function extracts profits and sends them back to the vault:
+
+```solidity
+// From StrategyAave.sol:72-86
+function harvest() external override onlyRouter {
+    // get aToken address
+    (address aTokenAddr, , ) = dataProvider.getReserveTokensAddresses(address(token));
+    uint256 aBal = IERC20(aTokenAddr).balanceOf(address(this));
+    
+    // aBal equals underlying amount for Aave v3
+    if (aBal > deposited) {
+        uint256 profit = aBal - deposited;
+        // withdraw profit from pool to this contract
+        uint256 out = pool.withdraw(address(token), profit, address(this));
+        token.safeTransfer(vault, out);
+        // deposited remains same (principal not removed)
+    }
+}
+```
+
+**Harvest Process**:
+1. Calculate profit: `aToken balance - deposited principal`
+2. Withdraw profit amount from Aave
+3. Transfer profit to vault
+4. Keep principal deposited for continued yield generation
+
+### 4. Withdrawals
+
+When users withdraw from the vault:
+
+```solidity
+// From StrategyAave.sol:61-70
+function withdrawToVault(uint256 amount) external override onlyRouter returns(uint256) {
+    // withdraw underlying from aave to this contract
+    uint256 out = pool.withdraw(address(token), amount, address(this));
+    token.safeTransfer(vault, out);
+    
+    if (out <= deposited) deposited -= out;
+    else deposited = 0;
+    
+    return out;
+}
+```
+
+**Withdrawal Flow**:
+1. Router requests withdrawal of specific amount
+2. Strategy withdraws from Aave Pool (burns aTokens)
+3. Receives USDC back
+4. Transfers USDC to vault
+5. Updates `deposited` accounting
+
+### 5. Balance Tracking
+
+The strategy reports its total value via:
+
+```solidity
+// From StrategyAave.sol:88-90
+function strategyBalance() public view override returns (uint256) {
+    return pool.getUnderlyingValue(address(this), address(token));
+}
+```
+
+This returns the current underlying value including both principal and accrued interest.
+
+## Strategy Parameters
+
+### Immutable Configuration
+
+Set at deployment and cannot be changed:
+
+```solidity
+// From StrategyAave.sol:18-22
+IERC20 public immutable token;    // USDC
+address public immutable vault;   // MetaVault address
+address public immutable router;  // StrategyRouter address
+IPool public immutable pool;      // Aave V3 Pool
+IProtocolDataProvider public immutable dataProvider; // Aave data provider
+```
+
+### Constructor
+
+```solidity
+// From StrategyAave.sol:27-34
+constructor(address _asset, address _vault, address _router, address _pool, address _dataProvider) {
+    token = IERC20(_asset);
+    vault = _vault;
+    router = _router;
+    pool = IPool(_pool);
+    dataProvider = IProtocolDataProvider(_dataProvider);
+    token.approve(address(pool), type(uint256).max);
+}
+```
+
+**Approvals**: Grants unlimited approval to Aave Pool for gas-efficient deposits.
+
+## Risk Profile
+
+### Low Risk Factors
+
+✅ **No Leverage**: Strategy does not borrow, eliminating liquidation risk
+
+✅ **Battle-Tested Protocol**: Aave V3 is one of the most secure DeFi protocols
+
+✅ **Isolated Exposure**: Only exposure is to Aave smart contract risk
+
+✅ **No Price Risk**: USDC is a stablecoin with minimal volatility
+
+✅ **Simple Mechanics**: Straightforward supply-only logic reduces complexity risks
+
+### Potential Risks
+
+<Warning>
+**Smart Contract Risk**: While Aave V3 is audited and proven, all smart contracts carry inherent risk. Users should understand that their funds are subject to Aave's security.
+</Warning>
+
+<Warning>
+**USDC Depeg Risk**: While rare, stablecoins can experience temporary depegs during market stress. Historical precedents include USDC's brief depeg in March 2023.
+</Warning>
+
+## Deleveraging (No-Op)
+
+Since this strategy doesn't use leverage, the `deleverageAll` function is a no-op:
+
+```solidity
+// From StrategyAave.sol:94-98
+function deleverageAll(uint256 /*maxLoops*/) external override onlyRouter {
+    // This strategy doesn't borrow; nothing to do.
+    // Keep as no-op so Router can call deleverageAll uniformly.
+    return;
+}
+```
+
+This allows the StrategyRouter to call `deleverageAll()` on all strategies uniformly without errors.
+
+## APY Calculation
+
+Actual APY depends on:
+
+1. **Aave Supply APY**: Current lending rate for USDC on Aave V3
+2. **Utilization Rate**: Higher borrowing demand → higher supply APY
+3. **AAVE Rewards**: Additional incentives distributed by Aave governance
+4. **Vault Fees**: Performance fees deducted by MetaVault
+
+**Formula**:
+```
+Net APY = (Aave Supply APY + Rewards APY) - Vault Performance Fee
+```
+
+## Development Note
+
+<Info>
+For development and testing, this strategy uses **mock Aave contracts** that simulate:
+- Liquidity index updates (initialized at `1e18`)
+- aToken balance accrual
+- Supply and withdrawal mechanics
+
+Interest accrual is programmatically controlled for predictable testing.
+</Info>
+
+## Access Control
+
+All state-changing functions use the `onlyRouter` modifier:
+
+```solidity
+// From StrategyAave.sol:36-39
+modifier onlyRouter() {
+    require(msg.sender == router, "not router");
+    _;
+}
+```
+
+This ensures:
+- Only the StrategyRouter can invest, withdraw, or harvest
+- Prevents unauthorized fund movements
+- Centralizes strategy management through the router
+
+## Integration Example
+
+Deploying and connecting the strategy:
+
+```javascript
+// Deploy strategy
+const strategyAaveV3 = await StrategyAaveV3.deploy(
+  usdcAddress,        // asset
+  vaultAddress,       // vault
+  routerAddress,      // router
+  aavePoolAddress,    // Aave V3 Pool
+  dataProviderAddress // Aave data provider
+);
+
+// Add to router with 50% allocation (5000 basis points)
+await router.setStrategies(
+  [strategyAaveV3.address],
+  [5000]
+);
+```
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Aave Leverage Strategy" icon="chart-line" href="/strategies/aave-leverage-strategy">
+    Compare with high-yield leveraged strategy
+  </Card>
+  <Card title="Risk Management" icon="shield-halved" href="/strategies/risk-management">
+    Learn about risk parameters
+  </Card>
+  <Card title="Strategy Overview" icon="layer-group" href="/strategies/overview">
+    Return to strategies overview
+  </Card>
+  <Card title="AI Agents" icon="robot" href="/agents/overview">
+    See how AI manages this strategy
+  </Card>
+</CardGroup>

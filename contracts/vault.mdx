@@ -1,0 +1,294 @@
+---
+title: 'Vault Contract'
+description: 'Core vault contract development guide for MetaVault AI'
+---
+
+## Overview
+
+The Vault contract is the core of MetaVault AI's asset management system. It implements an ERC-4626-inspired vault that accepts user deposits, mints shares, and manages funds across multiple DeFi strategies.
+
+## Contract Architecture
+
+The Vault inherits from OpenZeppelin's battle-tested contracts:
+
+```solidity
+contract Vault is ERC20, Ownable {
+    using SafeERC20 for IERC20;
+
+    IERC20 public immutable asset;
+    uint256 public performanceFeeBps;
+    address public feeRecipient;
+    uint256 public withdrawFeeBps;
+    mapping(address => uint256) public netDeposited;
+    mapping(address => uint256) public totalWithdrawn;
+}
+```
+
+**Source:** `contracts/Vault.sol:19-27`
+
+## Key Features
+
+### Share-Based Accounting
+
+The vault uses share-based accounting to track user ownership:
+
+- Users deposit assets and receive vault shares
+- Share value increases as strategies generate yield
+- Shares can be redeemed for proportional assets
+
+### Fee Management
+
+- **Performance Fee**: Charged on harvest profits (default: 10% or 1000 bps)
+- **Withdrawal Fee**: Charged on withdrawals (default: 1% or 100 bps)
+
+## Core Functions
+
+### Deposit
+
+Accepts user deposits and mints proportional shares:
+
+```solidity
+function deposit(uint256 amount) external returns (uint256) {
+    uint256 shares = convertToShares(amount);
+    
+    asset.safeTransferFrom(msg.sender, address(this), amount);
+    _mint(msg.sender, shares);
+    
+    // Track deposit history
+    netDeposited[msg.sender] += amount;
+    
+    emit Deposit(msg.sender, amount, shares);
+    return shares;
+}
+```
+
+**Source:** `contracts/Vault.sol:89-100`
+
+### Withdraw
+
+Burns shares and returns assets to users:
+
+```solidity
+function withdraw(uint256 shares) external returns (uint256 assetsOut) {
+    require(shares > 0, "zero shares");
+    require(balanceOf(msg.sender) >= shares, "not enough shares");
+    
+    // 1. Convert shares → assets
+    assetsOut = convertToAssets(shares);
+    
+    // 2. Burn user's shares
+    _burn(msg.sender, shares);
+    
+    // 3. Pull assets from strategies if needed
+    uint256 vaultBal = asset.balanceOf(address(this));
+    
+    if (vaultBal < assetsOut) {
+        uint256 needed = assetsOut - vaultBal;
+        IStrategyRouter(router).withdrawFromStrategies(needed);
+    }
+    
+    // 4. Apply withdrawal fee
+    uint256 fee = (assetsOut * withdrawFeeBps) / 10000;
+    uint256 userAmount = assetsOut - fee;
+    
+    asset.safeTransfer(msg.sender, userAmount);
+}
+```
+
+**Source:** `contracts/Vault.sol:103-148`
+
+### Share Conversion
+
+Convert between shares and assets:
+
+```solidity
+function convertToShares(uint256 assets) public view returns (uint256) {
+    uint256 s = totalSupply();
+    return s == 0 ? assets : (assets * s) / totalManagedAssets();
+}
+
+function convertToAssets(uint256 shares) public view returns (uint256) {
+    uint256 s = totalSupply();
+    return s == 0 ? shares : (shares * totalManagedAssets()) / s;
+}
+```
+
+**Source:** `contracts/Vault.sol:57-65`
+
+## Strategy Integration
+
+### Router Connection
+
+The vault connects to a StrategyRouter for fund management:
+
+```solidity
+address public router;
+
+function setRouter(address _router) external onlyOwner {
+    router = _router;
+}
+
+modifier onlyRouter() {
+    require(msg.sender == router, "not router");
+    _;
+}
+```
+
+**Source:** `contracts/Vault.sol:154-163`
+
+### Fund Movement
+
+Only the router can move funds between vault and strategies:
+
+```solidity
+// Move funds TO strategy
+function moveToStrategy(
+    address strategy,
+    uint256 amount
+) external onlyRouter {
+    asset.approve(strategy, amount);
+    asset.safeTransfer(strategy, amount);
+}
+
+// Receive funds FROM strategy
+function receiveFromStrategy(uint256 amount) external onlyRouter {
+    // Strategies call asset.transfer(vault, amount)
+}
+```
+
+**Source:** `contracts/Vault.sol:166-182`
+
+### Total Managed Assets
+
+Calculate total assets across vault and all strategies:
+
+```solidity
+function totalManagedAssets() public view returns (uint256) {
+    uint256 total = asset.balanceOf(address(this));
+    
+    if (router != address(0)) {
+        address[] memory strats = IStrategyRouter(router).getStrategies();
+        
+        for (uint256 i = 0; i < strats.length; i++) {
+            total += IStrategy(strats[i]).strategyBalance();
+        }
+    }
+    
+    return total;
+}
+```
+
+**Source:** `contracts/Vault.sol:196-208`
+
+## User Analytics
+
+### Growth Tracking
+
+Track individual user profit/loss:
+
+```solidity
+function userGrowth(address user) public view returns (int256) {
+    uint256 deposited = netDeposited[user];
+    if (deposited == 0) return 0;
+    
+    uint256 withdrawn = totalWithdrawn[user];
+    uint256 currentValue = convertToAssets(balanceOf(user));
+    
+    int256 pnl = int256(currentValue + withdrawn) - int256(deposited);
+    return pnl;
+}
+
+function userGrowthPercent(address user) external view returns (int256) {
+    uint256 deposited = netDeposited[user];
+    if (deposited == 0) return 0;
+    
+    int256 pnl = userGrowth(user);
+    return (pnl * 1e18) / int256(deposited);
+}
+```
+
+**Source:** `contracts/Vault.sol:67-85`
+
+## Profit Harvesting
+
+Handle profits from strategy harvests:
+
+```solidity
+function handleHarvestProfit(uint256 profit) external {
+    require(msg.sender == router, "not router");
+    
+    if (profit == 0) return;
+    
+    uint256 fee = (profit * performanceFeeBps) / 10000;
+    
+    if (fee > 0) {
+        asset.safeTransfer(feeRecipient, fee);
+    }
+}
+```
+
+**Source:** `contracts/Vault.sol:184-194`
+
+## Constructor Parameters
+
+Deploy the vault with these parameters:
+
+```solidity
+constructor(
+    address _asset,           // Underlying token (e.g., USDC, LINK)
+    address _feeRecipient,    // Address to receive fees
+    uint256 _performanceBps,  // Performance fee in basis points
+    uint256 _withdrawFeeBps   // Withdrawal fee in basis points
+) ERC20("Vault Share Token", "VST") Ownable(msg.sender)
+```
+
+**Source:** `contracts/Vault.sol:33-43`
+
+## OpenZeppelin Dependencies
+
+The Vault relies on OpenZeppelin v5.4.0:
+
+```solidity
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+```
+
+**Source:** `contracts/Vault.sol:4-6`
+
+## Events
+
+```solidity
+event Deposit(address indexed user, uint256 amount, uint256 shares);
+event Withdraw(address indexed user, uint256 amount, uint256 shares);
+```
+
+**Source:** `contracts/Vault.sol:30-31`
+
+## View Functions
+
+```solidity
+function totalAssets() public view returns (uint256);
+function getNAV() external view returns (uint256);
+function availableLiquidity() external view returns (uint256);
+```
+
+## Security Considerations
+
+1. **Access Control**: Only router can move funds to strategies
+2. **SafeERC20**: All token transfers use OpenZeppelin's SafeERC20
+3. **Fee Caps**: Consider implementing maximum fee limits
+4. **Reentrancy**: Protected by CEI pattern (Checks-Effects-Interactions)
+
+## Development Best Practices
+
+- Always use `onlyOwner` or `onlyRouter` modifiers for sensitive functions
+- Emit events for all state changes
+- Use basis points (10000 = 100%) for fee calculations
+- Track user history for accurate analytics
+
+## Next Steps
+
+- [Strategy Router Development](/contracts/strategy-router)
+- [Strategy Development](/contracts/strategies)
+- [Contract Deployment](/contracts/deployment)

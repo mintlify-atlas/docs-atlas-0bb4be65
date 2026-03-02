@@ -1,0 +1,618 @@
+---
+title: 'StrategyAaveLeverage Contract'
+description: 'Advanced leveraged yield strategy using Aave V3 recursive borrowing and token swaps'
+---
+
+## Overview
+
+The `StrategyAaveLeverage` contract implements a sophisticated leveraged yield strategy on Aave V3. It recursively borrows WETH against supplied collateral, swaps to the underlying asset, and re-supplies to amplify returns. This strategy multiplies exposure but also increases risk.
+
+**Implements**: `IStrategy`
+
+**Risk Level**: High (uses leverage, liquidation risk)
+
+**Strategy Flow**:
+1. Supply LINK as collateral
+2. Borrow WETH against LINK
+3. Swap WETH → LINK via DEX
+4. Supply newly acquired LINK
+5. Repeat (controlled by `maxDepth`)
+
+## State Variables
+
+<ResponseField name="token" type="IERC20" required>
+  Immutable. The underlying asset token (e.g., LINK).
+</ResponseField>
+
+<ResponseField name="vault" type="address" required>
+  Immutable. Address of the Vault contract.
+</ResponseField>
+
+<ResponseField name="router" type="address" required>
+  Immutable. Address of the StrategyRouter.
+</ResponseField>
+
+<ResponseField name="pool" type="IPool" required>
+  Immutable. Aave V3 Pool contract.
+</ResponseField>
+
+<ResponseField name="dataProvider" type="IProtocolDataProvider" required>
+  Immutable. Aave Protocol Data Provider.
+</ResponseField>
+
+<ResponseField name="swapRouter" type="ISwapRouterV2" required>
+  Immutable. UniswapV2-style DEX router for token swaps.
+</ResponseField>
+
+<ResponseField name="WETH" type="address" required>
+  Immutable. WETH token address.
+</ResponseField>
+
+<ResponseField name="oracle" type="IPriceOracle" required>
+  Immutable. Price oracle for WETH/LINK conversions.
+</ResponseField>
+
+<ResponseField name="deposited" type="uint256" required>
+  Total principal deposited by vault (tracking).
+</ResponseField>
+
+<ResponseField name="borrowedWETH" type="uint256" required>
+  Total WETH borrowed (approximate tracking).
+</ResponseField>
+
+<ResponseField name="maxDepth" type="uint8" required>
+  Maximum leverage loop iterations (default: 3, max: 6).
+</ResponseField>
+
+<ResponseField name="borrowFactor" type="uint256" required>
+  Borrow amount per loop in basis points (default: 6000 = 60%).
+</ResponseField>
+
+<ResponseField name="paused" type="bool" required>
+  Emergency pause flag.
+</ResponseField>
+
+## Events
+
+### InvestedLeveraged
+
+```solidity
+event InvestedLeveraged(
+    uint256 initial,
+    uint8 depth,
+    uint256 finalSupplied,
+    uint256 borrowedWETH
+)
+```
+
+<ParamField path="initial" type="uint256">
+  Initial amount invested
+</ParamField>
+
+<ParamField path="depth" type="uint8">
+  Number of leverage loops executed
+</ParamField>
+
+<ParamField path="finalSupplied" type="uint256">
+  Total amount supplied after leverage
+</ParamField>
+
+<ParamField path="borrowedWETH" type="uint256">
+  Total WETH borrowed
+</ParamField>
+
+### Deleveraged
+
+```solidity
+event Deleveraged(uint256 repaidWETH, uint256 redeemedLINK)
+```
+
+### Harvested
+
+```solidity
+event Harvested(uint256 profit)
+```
+
+### PauseToggled
+
+```solidity
+event PauseToggled(bool paused)
+```
+
+### LeverageParamsUpdated
+
+```solidity
+event LeverageParamsUpdated(uint8 maxDepth, uint256 borrowFactor)
+```
+
+## Constructor
+
+```solidity
+constructor(
+    address _asset,
+    address _vault,
+    address _router,
+    address _pool,
+    address _dataProvider,
+    address _swapRouter,
+    address _weth,
+    address _oracle
+)
+```
+
+<ParamField path="_asset" type="address" required>
+  Underlying asset (e.g., LINK)
+</ParamField>
+
+<ParamField path="_vault" type="address" required>
+  Vault contract address
+</ParamField>
+
+<ParamField path="_router" type="address" required>
+  StrategyRouter address
+</ParamField>
+
+<ParamField path="_pool" type="address" required>
+  Aave V3 Pool address
+</ParamField>
+
+<ParamField path="_dataProvider" type="address" required>
+  Aave Protocol Data Provider address
+</ParamField>
+
+<ParamField path="_swapRouter" type="address" required>
+  UniswapV2-compatible router address
+</ParamField>
+
+<ParamField path="_weth" type="address" required>
+  WETH token address
+</ParamField>
+
+<ParamField path="_oracle" type="address" required>
+  Price oracle address
+</ParamField>
+
+**Initialization**:
+- Approves pool to spend unlimited tokens
+- Approves swap router to spend unlimited WETH
+- Sets all immutable references
+
+## Core Strategy Functions
+
+### invest
+
+```solidity
+function invest(uint256 amount) external override onlyRouter
+```
+
+Invest with leverage by recursively borrowing and re-supplying.
+
+<ParamField path="amount" type="uint256" required>
+  Initial amount to invest (already transferred to strategy)
+</ParamField>
+
+**Requirements**:
+- Strategy must not be paused
+- Strategy must hold sufficient token balance
+- Only callable by router
+
+**Process**:
+1. Supply initial `amount` as collateral
+2. Loop up to `maxDepth` times:
+   - Calculate safe borrow amount (limited by pool liquidity)
+   - Borrow WETH from Aave
+   - Swap WETH → LINK via DEX
+   - Supply received LINK as additional collateral
+3. Update bookkeeping (`deposited`, `borrowedWETH`)
+
+**Safety Features**:
+- Caps borrow to small amounts (0.001 WETH or 1% of pool) to avoid liquidity issues
+- Uses try/catch on all external calls (borrow, swap, supply)
+- Stops looping if any operation fails
+- Attempts to repay borrowed WETH if swap fails
+
+**Example**:
+
+```solidity
+// Invest 1000 LINK with 3x leverage loops
+// Loop 1: Supply 1000 LINK, borrow 0.001 WETH, swap to ~0.1 LINK, supply 0.1 LINK
+// Loop 2: Borrow 0.001 WETH, swap to ~0.1 LINK, supply 0.1 LINK
+// Loop 3: Borrow 0.001 WETH, swap to ~0.1 LINK, supply 0.1 LINK
+// Total supplied: ~1000.3 LINK
+// Total borrowed: ~0.003 WETH
+router.moveFundsToStrategy(address(strategy), 1000e18);
+strategy.invest(1000e18);
+```
+
+### withdrawToVault
+
+```solidity
+function withdrawToVault(uint256 amount) external override onlyRouter returns(uint256)
+```
+
+Withdraw underlying assets from Aave position.
+
+<ParamField path="amount" type="uint256" required>
+  Amount of underlying to withdraw
+</ParamField>
+
+<ResponseField name="withdrawn" type="uint256">
+  Actual amount withdrawn and sent to vault
+</ResponseField>
+
+**Warning**: Withdrawing may fail if position is too leveraged. Call `deleverageAll()` first if needed.
+
+**Process**:
+1. Attempts to withdraw `amount` from Aave
+2. Transfers received tokens to vault
+3. Updates `deposited` tracker
+
+### harvest
+
+```solidity
+function harvest() external override onlyRouter
+```
+
+Harvest accrued interest and send profits to vault.
+
+**Process**:
+1. Gets current aToken balance (collateral including interest)
+2. Calculates profit: `aBal - deposited`
+3. Withdraws profit amount from Aave
+4. Transfers profit to vault
+
+**Note**: Keeps principal deposited; only harvests profits above deposited amount.
+
+### deleverageAll
+
+```solidity
+function deleverageAll(uint256 maxLoops) external onlyRouter
+```
+
+Unwind leverage by repaying borrowed WETH.
+
+<ParamField path="maxLoops" type="uint256" required>
+  Maximum iterations to prevent excessive gas usage
+</ParamField>
+
+**Process** (each loop):
+1. Check current WETH debt
+2. Calculate LINK needed to repay (using oracle price + 5% buffer)
+3. Withdraw LINK from Aave collateral
+4. Swap LINK → WETH via DEX
+5. Repay WETH debt to Aave
+6. Update bookkeeping
+7. Repeat until debt is zero or maxLoops reached
+
+**Use Cases**:
+- Before large withdrawals
+- Risk management during volatility
+- Emergency deleveraging
+
+**Example**:
+
+```solidity
+// Reduce leverage before withdrawing
+strategy.deleverageAll(5); // Up to 5 iterations
+
+// Now safe to withdraw
+strategy.withdrawToVault(500e18);
+```
+
+### strategyBalance
+
+```solidity
+function strategyBalance() public view override returns (uint256)
+```
+
+Get net asset value of the leveraged position.
+
+<ResponseField name="balance" type="uint256">
+  Net value (collateral + idle - debt)
+</ResponseField>
+
+**Calculation**:
+1. `collateral` = Aave supplied amount
+2. `idle` = Token balance on contract
+3. `debtValue` = WETH debt converted to LINK using oracle
+4. `netValue` = collateral + idle - debtValue
+
+**Example**:
+
+```solidity
+// Position:
+// Supplied: 1000 LINK
+// Borrowed: 0.003 WETH (= 0.3 LINK at oracle price)
+// strategyBalance() = 1000 - 0.3 = 999.7 LINK
+```
+
+## Configuration Functions
+
+### setLeverageParams
+
+```solidity
+function setLeverageParams(uint8 _maxDepth, uint256 _borrowFactor) external onlyRouter
+```
+
+Update leverage parameters.
+
+<ParamField path="_maxDepth" type="uint8" required>
+  Maximum loop iterations (1-6)
+</ParamField>
+
+<ParamField path="_borrowFactor" type="uint256" required>
+  Borrow percentage in basis points (max 8000 = 80%)
+</ParamField>
+
+**Safety Limits**:
+- `_maxDepth` {'<='} 6 (gas limit protection)
+- `_borrowFactor` {'<='} 8000 (80% max to maintain safe LTV)
+
+**Example**:
+
+```solidity
+// Set conservative leverage: 2 loops, 50% borrow
+strategy.setLeverageParams(2, 5000);
+
+// Set aggressive leverage: 5 loops, 70% borrow (risky!)
+strategy.setLeverageParams(5, 7000);
+```
+
+### togglePause
+
+```solidity
+function togglePause() external onlyRouter
+```
+
+Pause or unpause the strategy (emergency control).
+
+**When Paused**:
+- `invest()` reverts
+- `deleverageAll()` reverts
+- `harvest()` and `withdrawToVault()` still work (for emergency exits)
+
+## View Functions
+
+### getLeverageState
+
+```solidity
+function getLeverageState()
+    external view
+    returns (
+        uint256 deposited_,
+        uint256 borrowed_,
+        uint256 netExposure,
+        uint256 loops,
+        uint8 maxDepth_
+    )
+```
+
+Get complete leverage state.
+
+<ResponseField name="deposited_" type="uint256">
+  Total deposited principal
+</ResponseField>
+
+<ResponseField name="borrowed_" type="uint256">
+  Total WETH borrowed
+</ResponseField>
+
+<ResponseField name="netExposure" type="uint256">
+  Net exposure (deposited - borrowed in asset terms)
+</ResponseField>
+
+<ResponseField name="loops" type="uint256">
+  Current maxDepth setting
+</ResponseField>
+
+<ResponseField name="maxDepth_" type="uint8">
+  Maximum allowed depth
+</ResponseField>
+
+### getLTV
+
+```solidity
+function getLTV() external view returns (uint256)
+```
+
+Get current Loan-to-Value ratio.
+
+<ResponseField name="ltv" type="uint256">
+  LTV ratio scaled by 1e18 (1e18 = 100%)
+</ResponseField>
+
+**Formula**: `borrowedWETH * 1e18 / deposited`
+
+**Example**:
+
+```solidity
+uint256 ltv = strategy.getLTV();
+if (ltv > 0.7e18) { // If LTV > 70%
+    // Position is highly leveraged, consider deleveraging
+    router.triggerDeleverage(address(strategy), 3);
+}
+```
+
+### isAtRisk
+
+```solidity
+function isAtRisk(uint256 maxSafeLTV) external view returns (bool)
+```
+
+Check if position exceeds safe LTV threshold.
+
+<ParamField path="maxSafeLTV" type="uint256" required>
+  Maximum safe LTV in 1e18 scale (e.g., 0.75e18 = 75%)
+</ParamField>
+
+<ResponseField name="atRisk" type="bool">
+  True if current LTV exceeds maxSafeLTV
+</ResponseField>
+
+**Example**:
+
+```solidity
+// Check if position is at risk of liquidation
+// Aave LINK LTV might be 80%, use 70% for safety
+if (strategy.isAtRisk(0.70e18)) {
+    // Emergency deleverage
+    strategy.deleverageAll(10);
+}
+```
+
+## Integration Example
+
+```solidity
+// 1. Deploy leveraged strategy
+StrategyAaveLeverage strategy = new StrategyAaveLeverage(
+    address(link),        // asset
+    address(vault),       // vault
+    address(router),      // router
+    aavePool,             // Aave V3 Pool
+    aaveDataProvider,     // Data Provider
+    uniswapRouter,        // Swap router
+    address(weth),        // WETH
+    priceOracle           // Oracle
+);
+
+// 2. Configure leverage parameters
+strategy.setLeverageParams(
+    3,      // 3 leverage loops
+    6000    // Borrow 60% at each loop
+);
+
+// 3. Add to router
+address[] memory strats = new address[](2);
+strats[0] = address(safeStrategy);      // 70% allocation
+strats[1] = address(strategy);          // 30% allocation
+
+uint256[] memory allocations = new uint256[](2);
+allocations[0] = 7000;
+allocations[1] = 3000;
+
+router.setStrategies(strats, allocations);
+
+// 4. Invest with leverage
+router.moveFundsToStrategy(address(strategy), 1000e18);
+// Strategy now has leveraged position
+
+// 5. Monitor position
+(uint256 dep, uint256 borr, uint256 net, , ) = strategy.getLeverageState();
+uint256 ltv = strategy.getLTV();
+console.log("Deposited:", dep);
+console.log("Borrowed:", borr);
+console.log("LTV:", ltv / 1e16, "%"); // Convert to percentage
+
+// 6. Risk management
+if (strategy.isAtRisk(0.70e18)) {
+    router.triggerDeleverage(address(strategy), 5);
+}
+
+// 7. Harvest profits
+router.harvestAll();
+
+// 8. Safe withdrawal (deleverage first)
+router.triggerDeleverage(address(strategy), 10);
+strategy.withdrawToVault(500e18);
+```
+
+## Risk Management
+
+### Liquidation Risk
+
+```solidity
+// Monitor LTV continuously
+uint256 aaveLinkLTV = 8000; // 80% from Aave docs
+uint256 safeLTV = 7000;     // 70% safety buffer
+
+if (strategy.getLTV() > safeLTV * 1e18 / 10000) {
+    // Approaching liquidation threshold
+    strategy.deleverageAll(5);
+}
+```
+
+### Market Volatility
+
+```solidity
+// During high volatility, reduce leverage
+if (volatilityIndex > threshold) {
+    // Reduce to 1 loop (minimal leverage)
+    strategy.setLeverageParams(1, 5000);
+    // Deleverage existing position
+    strategy.deleverageAll(10);
+}
+```
+
+### Emergency Procedures
+
+```solidity
+// Emergency pause
+strategy.togglePause();
+
+// Emergency deleverage
+strategy.deleverageAll(20); // High loop count for full unwind
+
+// Emergency withdraw
+uint256 balance = strategy.strategyBalance();
+strategy.withdrawToVault(balance);
+```
+
+## Performance Characteristics
+
+**Gas Costs** (approximate per loop):
+- `invest()`: ~500k gas (3 loops = ~1.5M gas)
+- `deleverageAll()`: ~400k gas per loop
+- `withdrawToVault()`: ~250k gas
+- `strategyBalance()`: ~50k gas (view)
+
+**Yield Amplification**:
+- 3 loops with 60% borrow: ~1.8x exposure
+- Base APY 5% → Effective ~9% (before borrow costs)
+- Must subtract WETH borrow APY
+
+**Risks**:
+- Liquidation if LTV exceeds Aave threshold
+- DEX slippage on swaps
+- Oracle manipulation risk
+- Smart contract risk (Aave, DEX, Oracle)
+
+## Security Considerations
+
+1. **Liquidation**: Monitor LTV closely. Aave liquidates at ~80-85% LTV.
+2. **Oracle Risk**: Relies on oracle for deleverage calculations. Oracle failure could cause incorrect swaps.
+3. **DEX Risk**: Swaps use `amountOutMin = 0` (no slippage protection in current implementation).
+4. **Flash Loan Risk**: Vulnerable to oracle manipulation via flash loans.
+5. **Pause Mechanism**: Router can pause strategy to prevent new investments during crises.
+
+## AI Agent Integration
+
+```solidity
+// AI monitors market and adjusts leverage
+function aiOptimizeLeverage() external onlyAI {
+    uint256 currentAPY = strategy.estimateAPY();
+    uint256 volatility = getMarketVolatility();
+    
+    if (volatility > 50) {
+        // High volatility: reduce leverage
+        strategy.setLeverageParams(1, 4000);
+        router.triggerDeleverage(address(strategy), 5);
+    } else if (currentAPY > 15 && volatility < 20) {
+        // Good opportunity: increase leverage
+        strategy.setLeverageParams(4, 6500);
+    }
+    
+    // Continuous LTV monitoring
+    if (strategy.isAtRisk(0.72e18)) {
+        // Emergency deleverage
+        strategy.deleverageAll(10);
+        emit AIRiskMitigation("High LTV detected");
+    }
+}
+```
+
+## See Also
+
+- [StrategyAave](/api/contracts/strategy-aave) - Simple non-leveraged version
+- [StrategyRouter](/api/contracts/strategy-router) - Controls leverage strategies
+- [Vault](/api/contracts/vault) - User-facing vault
+- [Aave V3 Liquidation Docs](https://docs.aave.com/developers/guides/liquidations) - Liquidation mechanics

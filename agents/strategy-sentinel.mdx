@@ -1,0 +1,529 @@
+---
+title: Strategy Sentinel Agent
+description: AI agent for monitoring and managing vault strategies, risk, and portfolio allocation
+---
+
+The Strategy Sentinel Agent is responsible for monitoring, analyzing, and managing every strategy within the MetaVault portfolio. It maintains safety, optimal performance, healthy leverage, and capital preservation through rule-based decision logic.
+
+## Overview
+
+```typescript
+export async function getStrategySentinelAgent() {
+  return new LlmAgent({
+    name: "strategy_sentinel_agent",
+    description: "A agent that monitors and manages the strategies in the Vault.",
+    model: model,
+    tools: [
+      get_strategy_states,
+      get_user_balances,
+      get_vault_state,
+      rebalance_vault,
+      harvest_strategy,
+      vault_deposit,
+      vault_withdraw,
+      check_liquidation_risk,
+      auto_deleverage,
+      get_token_prices,
+      get_leverage_strategy_state,
+      get_vault_apy,
+      update_strategy_target_weights,
+      toggle_leverage_strategy_pause,
+      update_leverage_params
+    ]
+  })
+}
+```
+
+**Source:** `packages/agents/defi-portfolio/src/agents/sub-agents/strategy-sentinel-agent/agent.ts:22-180`
+
+## Core Responsibilities
+
+The Strategy Sentinel Agent must:
+
+1. **Continuously monitor** strategy health by pulling all on-chain balances, prices, risk metrics, and vault states
+2. **Detect risks early** including high LTV, excessive leverage, low liquidation buffer, and rapid price changes
+3. **Use simulation tools** to validate any corrective action before recommending it
+4. **Evaluate actions** using strategy rules, not intuition
+5. **Recommend corrective actions** such as reducing leverage, rebalancing, harvesting yield, or pausing strategies
+
+## Available Tools
+
+### Read & Monitoring Tools
+
+<AccordionGroup>
+  <Accordion title="get_strategy_states">
+    Fetches strategy addresses, their balances, and target BPS allocations from the Strategy Router.
+
+    **Implementation:**
+    ```typescript
+    export const get_strategy_states = createTool({
+      name: "get_strategy_states",
+      description: "Fetches strategy addresses, their balances, and target BPS allocations from the Strategy Router.",
+      fn: async () => {
+        const [strategies, balances, targets] = await chain_read(
+          env.ROUTER_ADDRESS,
+          StrategyRouterABI.abi,
+          "getPortfolioState",
+          []
+        );
+        return strategies.map((strat, i) => ({
+          strategy: strat,
+          raw: { balance: balances[i].toString(), targetBps: targets[i].toString() },
+          human: { 
+            balance: format18(balances[i]), 
+            targetPercent: (Number(targets[i]) / 100).toFixed(2) + "%" 
+          }
+        }));
+      }
+    });
+    ```
+    **Source:** `tools.ts:48-81`
+
+    **Returns:** Array of strategy objects with addresses, balances, and target allocations
+  </Accordion>
+
+  <Accordion title="get_vault_state">
+    Reads the vault's global state including total assets, supply, and managed balance.
+
+    **Implementation:**
+    ```typescript
+    export const get_vault_state = createTool({
+      name: "get_vault_state",
+      description: "Reads the vault's global state.",
+      fn: async () => {
+        const [totalAssets, totalSupply, totalManaged] = await Promise.all([
+          chain_read(env.VAULT_ADDRESS, VaultABI.abi, "totalAssets", []),
+          chain_read(env.VAULT_ADDRESS, VaultABI.abi, "totalSupply", []),
+          chain_read(env.VAULT_ADDRESS, VaultABI.abi, "totalManagedAssets", []),
+        ]);
+        return { raw, human };
+      }
+    });
+    ```
+    **Source:** `tools.ts:17-45`
+
+    **Returns:** Object with totalAssets, totalSupply, and totalManaged (both raw and human-readable)
+  </Accordion>
+
+  <Accordion title="get_user_balances">
+    Fetches vault share balance and withdrawable amount for a user.
+
+    **Schema:**
+    ```typescript
+    z.object({
+      user: z.string()
+    })
+    ```
+
+    **Returns:** User's shares and withdrawable assets (raw and human-readable)
+
+    **Source:** `tools.ts:85-114`
+  </Accordion>
+
+  <Accordion title="get_token_prices">
+    Fetches real-time LINK and WETH prices from CoinGecko API (real market prices, not mock).
+
+    **Implementation:**
+    ```typescript
+    export const get_token_prices = createTool({
+      name: "get_token_prices",
+      description: "Fetches real-time LINK and WETH prices from CoinGecko API.",
+      fn: async () => {
+        const response = await fetch(
+          "https://api.coingecko.com/api/v3/simple/price?ids=chainlink,weth&vs_currencies=usd&include_24hr_change=true"
+        );
+        const data = await response.json();
+        const linkPriceUSD = data.chainlink?.usd;
+        const wethPriceUSD = data.weth?.usd;
+        const linkPricePerWETH = wethPriceUSD / linkPriceUSD;
+        
+        return {
+          raw: { linkPriceUSD, wethPriceUSD, linkPricePerWETH },
+          human: { 
+            linkPriceUSD: linkPriceUSD.toFixed(2),
+            wethPriceUSD: wethPriceUSD.toFixed(2),
+            link24hChange: link24hChange.toFixed(2) + "%",
+            interpretation: `1 WETH = ${linkPricePerWETH.toFixed(2)} LINK`
+          },
+          source: "CoinGecko API (real market prices)"
+        };
+      }
+    });
+    ```
+    **Source:** `tools.ts:117-217`
+
+    **Returns:** USD prices for LINK and WETH, LINK/WETH ratio, and 24h price changes
+
+    **Fallback:** Falls back to CoinCap API if CoinGecko fails
+  </Accordion>
+
+  <Accordion title="get_leverage_strategy_state">
+    Gets comprehensive state of the leverage strategy including deposited amount, borrowed WETH, LTV, pause status, and leverage parameters.
+
+    **Implementation:**
+    ```typescript
+    export const get_leverage_strategy_state = createTool({
+      name: "get_leverage_strategy_state",
+      fn: async () => {
+        const [leverageState, ltv, paused, maxDepth, borrowFactor] = await Promise.all([
+          chain_read(env.STRATEGY_LEVERAGE_ADDRESS, StrategyLeverageABI.abi, "getLeverageState", []),
+          chain_read(env.STRATEGY_LEVERAGE_ADDRESS, StrategyLeverageABI.abi, "getLTV", []),
+          chain_read(env.STRATEGY_LEVERAGE_ADDRESS, StrategyLeverageABI.abi, "paused", []),
+          chain_read(env.STRATEGY_LEVERAGE_ADDRESS, StrategyLeverageABI.abi, "maxDepth", []),
+          chain_read(env.STRATEGY_LEVERAGE_ADDRESS, StrategyLeverageABI.abi, "borrowFactor", []),
+        ]);
+        return { raw, human };
+      }
+    });
+    ```
+    **Source:** `tools.ts:220-265`
+
+    **Returns:** Deposited amount, borrowed WETH, net exposure, LTV, pause status, maxDepth, and borrowFactor
+  </Accordion>
+
+  <Accordion title="get_vault_apy">
+    Calculates the vault APY based on TVL growth over time.
+
+    **Implementation:**
+    ```typescript
+    async function calculateVaultAPY(toolContext: ToolContext) {
+      const stateKey = "session.vault_apy_state";
+      const state = toolContext.state[stateKey];
+      const lastTVL = state?.lastTVL || 0;
+      const lastTs = state?.lastTimestamp || 0;
+      const now = Math.floor(Date.now() / 1000);
+      
+      const tvl = await chain_read(env.VAULT_ADDRESS, VaultABI.abi, "totalManagedAssets", []);
+      
+      if (lastTVL === 0 || lastTs === 0) {
+        toolContext.state[stateKey] = { lastTVL: tvl, lastTimestamp: now };
+        return { apy: 0, readable: "0%", message: "APY baseline set (first run)." };
+      }
+      
+      const dt = now - lastTs;
+      const growth = (tvl - lastTVL) / lastTVL;
+      const YEAR = 365 * 24 * 3600;
+      const apy = (growth / dt) * YEAR;
+      
+      toolContext.state[stateKey] = { lastTVL: tvl, lastTimestamp: now };
+      return { apy, readable: `${(apy * 100).toFixed(2)}%`, tvl, growth, dt };
+    }
+    ```
+    **Source:** `tools.ts:268-334`
+
+    **Returns:** APY percentage, TVL, growth rate, and time delta
+
+    **Note:** Uses stateful context to track TVL changes over time
+  </Accordion>
+</AccordionGroup>
+
+### Vault & Strategy Management Tools
+
+<AccordionGroup>
+  <Accordion title="vault_deposit">
+    Deposits LINK into the vault.
+
+    **Schema:**
+    ```typescript
+    z.object({
+      amount: z.string() // Human-readable LINK amount
+    })
+    ```
+
+    **Source:** `tools.ts:342-357`
+  </Accordion>
+
+  <Accordion title="vault_withdraw">
+    Withdraws shares from the vault.
+
+    **Schema:**
+    ```typescript
+    z.object({
+      shares: z.string() // Human-readable share amount
+    })
+    ```
+
+    **Source:** `tools.ts:360-370`
+  </Accordion>
+
+  <Accordion title="rebalance_vault">
+    Invokes the vault's rebalance() function to reallocate funds according to target weights.
+
+    **Implementation:**
+    ```typescript
+    export const rebalance_vault = createTool({
+      name: "rebalance_vault",
+      description: "Triggers vault rebalance().",
+      fn: async () => {
+        const tx = await chain_write(env.ROUTER_ADDRESS, StrategyRouterABI.abi, "rebalance", []);
+        return tx.hash;
+      }
+    });
+    ```
+    **Source:** `tools.ts:373-380`
+  </Accordion>
+
+  <Accordion title="harvest_strategy">
+    Triggers harvest() to send back the profits into the vault.
+
+    **Implementation:**
+    ```typescript
+    export const harvest_strategy = createTool({
+      name: "harvest_strategy",
+      description: "Calls harvestAll().",
+      fn: async () => {
+        const tx = await chain_write(env.ROUTER_ADDRESS, StrategyRouterABI.abi, "harvestAll", []);
+        return tx.hash;
+      }
+    });
+    ```
+    **Source:** `tools.ts:383-390`
+  </Accordion>
+
+  <Accordion title="update_strategy_target_weights">
+    Updates target allocation weights for strategies (in basis points, must sum to 10000).
+
+    **Schema:**
+    ```typescript
+    z.object({
+      leverageStrategyBps: z.number().min(0).max(10000),
+      aaveStrategyBps: z.number().min(0).max(10000)
+    })
+    ```
+
+    **Implementation:**
+    ```typescript
+    export const update_strategy_target_weights = createTool({
+      fn: async ({ leverageStrategyBps, aaveStrategyBps }) => {
+        if (leverageStrategyBps + aaveStrategyBps !== 10000) {
+          throw new Error("Target weights must sum to 10000 (100%)");
+        }
+        const strategies = [env.STRATEGY_LEVERAGE_ADDRESS, env.STRATEGY_AAVE_ADDRESS];
+        const bps = [leverageStrategyBps, aaveStrategyBps];
+        const tx = await chain_write(env.ROUTER_ADDRESS, StrategyRouterABI.abi, "setStrategies", [strategies, bps]);
+        return { tx: tx.hash, newWeights: { leverage: leverageStrategyBps, aave: aaveStrategyBps } };
+      }
+    });
+    ```
+    **Source:** `tools.ts:439-462`
+
+    **Use case:** Adjust portfolio allocation between leverage and Aave strategies based on market conditions
+
+    **Default weights:** Leverage: 80%, Aave: 20%
+  </Accordion>
+
+  <Accordion title="toggle_leverage_strategy_pause">
+    Pauses or unpauses the leverage strategy.
+
+    **Implementation:**
+    ```typescript
+    export const toggle_leverage_strategy_pause = createTool({
+      name: "toggle_leverage_strategy_pause",
+      description: "Pauses or unpauses the leverage strategy. When paused, the strategy cannot invest or deleverage.",
+      fn: async () => {
+        const tx = await chain_write(env.STRATEGY_LEVERAGE_ADDRESS, StrategyLeverageABI.abi, "togglePause", []);
+        const paused = await chain_read(env.STRATEGY_LEVERAGE_ADDRESS, StrategyLeverageABI.abi, "paused", []);
+        return { tx: tx.hash, paused, status: paused ? "paused" : "active" };
+      }
+    });
+    ```
+    **Source:** `tools.ts:465-485`
+
+    **Use case:** Pause when market conditions are unfavorable or risk is too high
+  </Accordion>
+
+  <Accordion title="update_leverage_params">
+    Updates leverage strategy parameters (maxDepth and borrowFactor).
+
+    **Schema:**
+    ```typescript
+    z.object({
+      maxDepth: z.number().min(1).max(6), // Maximum leverage loop iterations
+      borrowFactor: z.number().min(0).max(8000) // Basis points (e.g., 6000 = 60%)
+    })
+    ```
+
+    **Implementation:**
+    ```typescript
+    export const update_leverage_params = createTool({
+      description: "Updates leverage strategy parameters: maxDepth (1-6) and borrowFactor (0-8000).",
+      fn: async ({ maxDepth, borrowFactor }) => {
+        const tx = await chain_write(
+          env.STRATEGY_LEVERAGE_ADDRESS,
+          StrategyLeverageABI.abi,
+          "setLeverageParams",
+          [maxDepth, borrowFactor]
+        );
+        return { tx: tx.hash, newParams: { maxDepth, borrowFactor: borrowFactor / 100 + "%" } };
+      }
+    });
+    ```
+    **Source:** `tools.ts:488-510`
+
+    **Use case:** Reduce values to decrease leverage risk when prices are volatile
+  </Accordion>
+</AccordionGroup>
+
+### Risk Management Tools
+
+<AccordionGroup>
+  <Accordion title="check_liquidation_risk">
+    Checks leverage strategy liquidation risk.
+
+    **Implementation:**
+    ```typescript
+    export const check_liquidation_risk = createTool({
+      name: "check_liquidation_risk",
+      description: "Checks leverage strategy liquidation risk.",
+      fn: async () => {
+        const [deposited, borrowed] = await Promise.all([
+          chain_read(env.STRATEGY_LEVERAGE_ADDRESS, StrategyLeverageABI.abi, "deposited", []),
+          chain_read(env.STRATEGY_LEVERAGE_ADDRESS, StrategyLeverageABI.abi, "borrowedWETH", []),
+        ]);
+        
+        const ltv = borrowed / deposited;
+        
+        return {
+          ltv,
+          safe: ltv < 0.70,
+          warning: ltv >= 0.70 && ltv < 0.80,
+          critical: ltv >= 0.80,
+        };
+      }
+    });
+    ```
+    **Source:** `tools.ts:397-421`
+
+    **Risk thresholds:**
+    - Safe: LTV < 70%
+    - Warning: 70% ≤ LTV < 80%
+    - Critical: LTV ≥ 80%
+  </Accordion>
+
+  <Accordion title="auto_deleverage">
+    Repays debt to reduce liquidation risk.
+
+    **Implementation:**
+    ```typescript
+    export const auto_deleverage = createTool({
+      name: "auto_deleverage",
+      description: "Repay debt to reduce liquidation risk.",
+      fn: async () => {
+        const tx = await chain_write(
+          env.ROUTER_ADDRESS,
+          StrategyRouterABI.abi,
+          "triggerDeleverage",
+          [env.STRATEGY_LEVERAGE_ADDRESS, 10]
+        );
+        return tx.hash;
+      }
+    });
+    ```
+    **Source:** `tools.ts:424-436`
+
+    **Note:** Uses fixed deleverage amount of 10
+  </Accordion>
+</AccordionGroup>
+
+## Decision Making Guidelines
+
+### Price-Based Decision Making
+
+The agent **ALWAYS** checks LINK and WETH prices using `get_token_prices` before making leverage strategy decisions.
+
+**Price monitoring logic:**
+- Monitor price movements and volatility to assess risk
+- When LINK/WETH price ratio changes significantly (>10%):
+  - If prices are volatile or dropping rapidly → pause leverage strategy or reduce leverage params
+  - If prices are stable and favorable → can maintain or increase leverage
+- Use price data to inform target weight adjustments between strategies
+
+**Source:** `agent.ts:95-101`
+
+### Leverage Strategy State Management
+
+The agent regularly checks leverage strategy state using `get_leverage_strategy_state`.
+
+**Management rules:**
+- Monitor LTV, borrowed amounts, and pause status
+- When LTV exceeds 70% or prices are volatile → consider pausing or reducing leverage
+- Adjust leverage parameters (maxDepth, borrowFactor) based on market conditions:
+  - High volatility → reduce maxDepth and borrowFactor
+  - Stable markets → can maintain or slightly increase
+
+**Source:** `agent.ts:103-109`
+
+### Target Weight Management
+
+**Default target weights:**
+- Leverage: 80%
+- Aave: 20%
+
+**Adjustment criteria:**
+- Market conditions favor one strategy over another
+- Risk profile changes (e.g., reduce leverage strategy weight during high volatility)
+- Price movements suggest reallocation is prudent
+
+**Process:**
+1. Adjust target weights using `update_strategy_target_weights`
+2. Call `rebalance_vault` to execute the reallocation
+
+**Source:** `agent.ts:111-118`
+
+### Risk Detection
+
+The agent detects risks early, including:
+- High LTV
+- Excessive leverage
+- Low buffer to liquidation
+- Rapid price changes
+- Divergence from target allocations
+
+**Source:** `agent.ts:120-130`
+
+## Behavioral Principles
+
+The Strategy Sentinel Agent follows strict behavioral principles:
+
+1. **Be precise, risk-aware, and rule-driven**
+2. **Prefer safety over yield**
+3. **Explain reasoning based solely on tool outputs**
+4. **Chain multiple tools to reach correct conclusions**
+5. **Never assume or invent on-chain values**
+6. **Never perform an unsafe or unnecessary action**
+
+**Source:** `agent.ts:152-160`
+
+## Example Workflows
+
+### Risk Assessment Workflow
+
+```
+1. get_token_prices() → Check current LINK and WETH prices
+2. get_leverage_strategy_state() → Check LTV and leverage params
+3. check_liquidation_risk() → Assess risk level
+4. If LTV > 70%:
+   - auto_deleverage() → Reduce debt
+   OR
+   - update_leverage_params(maxDepth: 3, borrowFactor: 5000) → Reduce leverage
+   OR
+   - toggle_leverage_strategy_pause() → Pause strategy
+```
+
+### Rebalancing Workflow
+
+```
+1. get_strategy_states() → Check current allocations
+2. get_token_prices() → Check market conditions
+3. If reallocation needed:
+   - update_strategy_target_weights(leverageStrategyBps: 6000, aaveStrategyBps: 4000)
+   - rebalance_vault() → Execute rebalancing
+```
+
+### Harvesting Workflow
+
+```
+1. get_vault_state() → Check total managed assets
+2. get_vault_apy() → Check yield generation
+3. harvest_strategy() → Collect profits from strategies
+```

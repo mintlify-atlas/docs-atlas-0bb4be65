@@ -1,0 +1,661 @@
+---
+title: 'Creating Tools & Functions'
+description: 'Build custom tools for your AI agents to interact with smart contracts, APIs, and external systems'
+icon: 'wrench'
+---
+
+## Overview
+
+Tools are functions that AI agents can call to interact with external systems. The ADK-TS `createTool` function enables you to create type-safe tools with schema validation.
+
+## Tool Structure
+
+Every tool has three main components:
+
+1. **name**: Unique identifier for the tool
+2. **description**: Explanation of what the tool does (used by the LLM)
+3. **fn**: The actual function implementation
+4. **schema** (optional): Zod schema for input validation
+
+## Basic Tool Creation
+
+```typescript
+import { createTool } from "@iqai/adk";
+import { z } from "zod";
+
+export const simple_tool = createTool({
+  name: "simple_tool",
+  description: "A simple tool that greets the user.",
+  fn: async () => {
+    return "Hello from the tool!";
+  }
+});
+```
+
+## Tool with Parameters
+
+```typescript
+import { createTool } from "@iqai/adk";
+import { z } from "zod";
+
+export const greet_user = createTool({
+  name: "greet_user",
+  description: "Greets a user by name.",
+  schema: z.object({
+    name: z.string()
+  }),
+  fn: async ({ name }) => {
+    return `Hello, ${name}!`;
+  }
+});
+```
+
+## Blockchain Read Tools
+
+Tools that read data from smart contracts without modifying state.
+
+### Reading Vault State
+
+```typescript src/agents/sub-agents/strategy-sentinel-agent/tools.ts
+import { createTool } from "@iqai/adk";
+import { VaultABI } from "../../shared/abi";
+import { chain_read, toStringBN } from "../../shared/utils/chain";
+import { format18 } from "../../shared/utils/bigint";
+import { env } from "../../../env";
+
+export const get_vault_state = createTool({
+  name: "get_vault_state",
+  description: "Reads the vault's global state.",
+  fn: async () => {
+    const [
+      totalAssets,
+      totalSupply,
+      totalManaged,
+    ] = await Promise.all([
+      chain_read(env.VAULT_ADDRESS, VaultABI.abi, "totalAssets", []),
+      chain_read(env.VAULT_ADDRESS, VaultABI.abi, "totalSupply", []),
+      chain_read(env.VAULT_ADDRESS, VaultABI.abi, "totalManagedAssets", []),
+    ]);
+
+    const raw = {
+      totalAssets: totalAssets.toString(),
+      totalSupply: totalSupply.toString(),
+      totalManaged: totalManaged.toString(),
+    };
+
+    const human = {
+      totalAssets: format18(raw.totalAssets),
+      totalSupply: format18(totalSupply),
+      totalManaged: format18(raw.totalManaged),
+    };
+
+    return toStringBN({ raw, human });
+  }
+});
+```
+
+### Reading Strategy States
+
+```typescript
+export const get_strategy_states = createTool({
+  name: "get_strategy_states",
+  description: "Fetches strategy addresses, their balances, and target BPS allocations from the Strategy Router.",
+  fn: async () => {
+    // Call the router function
+    const [strategies, balances, targets] = await chain_read(
+      env.ROUTER_ADDRESS,
+      StrategyRouterABI.abi,
+      "getPortfolioState",
+      []
+    );
+
+    // Transform into structured objects
+    const result = strategies.map((strat: string, i: number) => {
+      const rawBal = balances[i].toString();
+      const rawTarget = targets[i].toString();
+
+      return {
+        strategy: strat,
+        raw: {
+          balance: rawBal,
+          targetBps: rawTarget,
+        },
+        human: {
+          balance: format18(rawBal),
+          targetPercent: (Number(rawTarget) / 100).toFixed(2) + "%",
+        },
+      };
+    });
+
+    return JSON.stringify(result, null, 2);
+  }
+});
+```
+
+### Reading User Balances
+
+```typescript
+export const get_user_balances = createTool({
+  name: "get_user_balances",
+  description: "Fetches vault share balance and withdrawable amount for a user.",
+  schema: z.object({
+    user: z.string()
+  }),
+  fn: async ({ user }) => {
+    const [
+      balance,
+      assets
+    ] = await Promise.all([
+      chain_read(env.VAULT_ADDRESS, VaultABI.abi, "balanceOf", [user]),
+      chain_read(env.VAULT_ADDRESS, VaultABI.abi, "convertToAssets", [
+        await chain_read(env.VAULT_ADDRESS, VaultABI.abi, "balanceOf", [user])
+      ])
+    ]);
+
+    const raw = {
+      shares: balance.toString(),
+      withdrawable: assets.toString(),
+    };
+
+    const human = {
+      shares: format18(raw.shares),
+      withdrawable: format18(raw.withdrawable),
+    };
+
+    return toStringBN({ raw, human });
+  }
+});
+```
+
+## Blockchain Write Tools
+
+Tools that execute transactions on the blockchain.
+
+### Vault Deposit
+
+```typescript
+import { parseUnits } from "../../shared/utils/bigint";
+import { chain_write } from "../../shared/utils/chain";
+
+export const vault_deposit = createTool({
+  name: "vault_deposit",
+  description: "Deposit LINK into vault.",
+  schema: z.object({
+    amount: z.string()
+  }),
+  fn: async ({ amount }) => {
+    const tx = await chain_write(
+      env.VAULT_ADDRESS,
+      VaultABI.abi,
+      "deposit",
+      [parseUnits(amount)]
+    );
+    return tx.hash;
+  }
+});
+```
+
+### Vault Withdraw
+
+```typescript
+export const vault_withdraw = createTool({
+  name: "vault_withdraw",
+  description: "Withdraw shares from vault.",
+  schema: z.object({
+    shares: z.string()
+  }),
+  fn: async ({ shares }) => {
+    const tx = await chain_write(
+      env.VAULT_ADDRESS,
+      VaultABI.abi,
+      "withdraw",
+      [shares]
+    );
+    return tx.hash;
+  }
+});
+```
+
+### Rebalance Vault
+
+```typescript
+export const rebalance_vault = createTool({
+  name: "rebalance_vault",
+  description: "Triggers vault rebalance().",
+  fn: async () => {
+    const tx = await chain_write(
+      env.ROUTER_ADDRESS,
+      StrategyRouterABI.abi,
+      "rebalance",
+      []
+    );
+    return tx.hash;
+  }
+});
+```
+
+### Harvest Strategy
+
+```typescript
+export const harvest_strategy = createTool({
+  name: "harvest_strategy",
+  description: "Calls harvestAll().",
+  fn: async () => {
+    const tx = await chain_write(
+      env.ROUTER_ADDRESS,
+      StrategyRouterABI.abi,
+      "harvestAll",
+      []
+    );
+    return tx.hash;
+  }
+});
+```
+
+## API Integration Tools
+
+### Fetching Token Prices
+
+```typescript
+export const get_token_prices = createTool({
+  name: "get_token_prices",
+  description: "Fetches real-time LINK and WETH prices from CoinGecko API. Returns LINK and WETH prices in USD, and calculates LINK price per WETH ratio.",
+  fn: async () => {
+    try {
+      // Fetch real prices from CoinGecko API
+      const response = await fetch(
+        "https://api.coingecko.com/api/v3/simple/price?ids=chainlink,weth&vs_currencies=usd&include_24hr_change=true"
+      );
+
+      if (!response.ok) {
+        throw new Error(`CoinGecko API error: ${response.statusText}`);
+      }
+
+      const data = await response.json() as {
+        chainlink?: { usd: number; usd_24h_change?: number };
+        weth?: { usd: number; usd_24h_change?: number };
+      };
+
+      // Extract prices in USD
+      const linkPriceUSD = data.chainlink?.usd || 0;
+      const wethPriceUSD = data.weth?.usd || 0;
+      const link24hChange = data.chainlink?.usd_24h_change || 0;
+      const weth24hChange = data.weth?.usd_24h_change || 0;
+
+      if (linkPriceUSD === 0 || wethPriceUSD === 0) {
+        throw new Error("Failed to fetch valid prices from CoinGecko");
+      }
+
+      // Calculate LINK price per WETH
+      const linkPricePerWETH = wethPriceUSD / linkPriceUSD;
+
+      // Convert to 18 decimal format (scaled by 1e18)
+      const linkPricePerWETH_scaled = BigInt(Math.floor(linkPricePerWETH * 1e18));
+      const wethPrice_scaled = BigInt(Math.floor(wethPriceUSD * 1e18));
+      const linkPriceUSD_scaled = BigInt(Math.floor(linkPriceUSD * 1e18));
+
+      const raw = {
+        linkPriceUSD: linkPriceUSD_scaled.toString(),
+        wethPriceUSD: wethPrice_scaled.toString(),
+        linkPricePerWETH: linkPricePerWETH_scaled.toString(),
+      };
+
+      const human = {
+        linkPriceUSD: linkPriceUSD.toFixed(2),
+        wethPriceUSD: wethPriceUSD.toFixed(2),
+        linkPricePerWETH: linkPricePerWETH.toFixed(6),
+        link24hChange: link24hChange.toFixed(2) + "%",
+        weth24hChange: weth24hChange.toFixed(2) + "%",
+        interpretation: `1 WETH = ${linkPricePerWETH.toFixed(2)} LINK`,
+      };
+
+      return { raw, human, source: "CoinGecko API (real market prices)" };
+    } catch (error: any) {
+      throw new Error(`Failed to fetch real prices: ${error.message}`);
+    }
+  }
+});
+```
+
+## Risk Management Tools
+
+### Check Liquidation Risk
+
+```typescript
+export const check_liquidation_risk = createTool({
+  name: "check_liquidation_risk",
+  description: "Checks leverage strategy liquidation risk.",
+  fn: async () => {
+    const [
+      deposited,
+      borrowed
+    ] = await Promise.all([
+      chain_read(env.STRATEGY_LEVERAGE_ADDRESS, StrategyLeverageABI.abi, "deposited", []),
+      chain_read(env.STRATEGY_LEVERAGE_ADDRESS, StrategyLeverageABI.abi, "borrowedWETH", []),
+    ]);
+
+    const dep = Number(format18(deposited.toString()));
+    const bor = Number(format18(borrowed.toString()));
+
+    const ltv = bor / dep;
+
+    return {
+      ltv,
+      safe: ltv < 0.70,
+      warning: ltv >= 0.70 && ltv < 0.80,
+      critical: ltv >= 0.80,
+    };
+  }
+});
+```
+
+### Auto Deleverage
+
+```typescript
+export const auto_deleverage = createTool({
+  name: "auto_deleverage",
+  description: "Repay debt to reduce liquidation risk.",
+  fn: async () => {
+    const tx = await chain_write(
+      env.ROUTER_ADDRESS,
+      StrategyRouterABI.abi,
+      "triggerDeleverage",
+      [env.STRATEGY_LEVERAGE_ADDRESS, 10]
+    );
+    return tx.hash;
+  }
+});
+```
+
+## Stateful Tools with ToolContext
+
+Tools can maintain state across invocations using `ToolContext`.
+
+```typescript
+import { createTool, ToolContext } from "@iqai/adk";
+
+export const get_vault_apy = createTool({
+  name: "get_vault_apy",
+  description: "Calculates the vault APY based on TVL growth.",
+  fn: async (_params: {}, toolContext: ToolContext) => {
+    // Load previous state from context
+    const stateKey = "session.vault_apy_state";
+    const state = toolContext.state[stateKey] as {
+      lastTVL?: number;
+      lastTimestamp?: number;
+    } | undefined;
+
+    const lastTVL = state?.lastTVL ? Number(state.lastTVL) : 0;
+    const lastTs = state?.lastTimestamp ? Number(state.lastTimestamp) : 0;
+    const now = Math.floor(Date.now() / 1000);
+
+    // Read current TVL
+    const tvl = Number(
+      await chain_read(env.VAULT_ADDRESS, VaultABI.abi, "totalManagedAssets", [])
+    );
+
+    // First run - store baseline state
+    if (lastTVL === 0 || lastTs === 0) {
+      toolContext.state[stateKey] = {
+        lastTVL: tvl,
+        lastTimestamp: now
+      };
+
+      return {
+        apy: 0,
+        readable: "0%",
+        message: "APY baseline set (first run).",
+        tvl
+      };
+    }
+
+    let dt: number = now - lastTs;
+    if (dt <= 0) dt = 1;
+
+    const growth = (tvl - lastTVL) / lastTVL;
+    const YEAR = 365 * 24 * 3600;
+
+    const apy = (growth / dt) * YEAR;
+    const readable = `${(apy * 100).toFixed(2)}%`;
+
+    // Update state in context with new values
+    toolContext.state[stateKey] = {
+      lastTVL: tvl,
+      lastTimestamp: now
+    };
+
+    return {
+      apy,
+      readable,
+      tvl,
+      growth,
+      dt
+    };
+  }
+});
+```
+
+## Complex Parameter Tools
+
+### Update Strategy Weights
+
+```typescript
+export const update_strategy_target_weights = createTool({
+  name: "update_strategy_target_weights",
+  description: "Updates target allocation weights for strategies in basis points (10000 = 100%). Must sum to 10000. Example: [8000, 2000] means 80% to first strategy, 20% to second.",
+  schema: z.object({
+    leverageStrategyBps: z.number().min(0).max(10000).describe("Target weight for leverage strategy in basis points (0-10000)"),
+    aaveStrategyBps: z.number().min(0).max(10000).describe("Target weight for Aave strategy in basis points (0-10000)")
+  }),
+  fn: async ({ leverageStrategyBps, aaveStrategyBps }) => {
+    if (leverageStrategyBps + aaveStrategyBps !== 10000) {
+      throw new Error("Target weights must sum to 10000 (100%)");
+    }
+
+    const strategies = [env.STRATEGY_LEVERAGE_ADDRESS, env.STRATEGY_AAVE_ADDRESS];
+    const bps = [leverageStrategyBps, aaveStrategyBps];
+
+    const tx = await chain_write(
+      env.ROUTER_ADDRESS,
+      StrategyRouterABI.abi,
+      "setStrategies",
+      [strategies, bps]
+    );
+    return { tx: tx.hash, newWeights: { leverage: leverageStrategyBps, aave: aaveStrategyBps } };
+  }
+});
+```
+
+### Update Leverage Parameters
+
+```typescript
+export const update_leverage_params = createTool({
+  name: "update_leverage_params",
+  description: "Updates leverage strategy parameters: maxDepth (1-6, max loop iterations) and borrowFactor (0-8000, parts-per-10000, e.g., 6000 = 60% of collateral borrowed per loop).",
+  schema: z.object({
+    maxDepth: z.number().min(1).max(6).describe("Maximum leverage loop iterations (1-6)"),
+    borrowFactor: z.number().min(0).max(8000).describe("Borrow factor in basis points (0-8000, e.g., 6000 = 60%)")
+  }),
+  fn: async ({ maxDepth, borrowFactor }) => {
+    const tx = await chain_write(
+      env.STRATEGY_LEVERAGE_ADDRESS,
+      StrategyLeverageABI.abi,
+      "setLeverageParams",
+      [maxDepth, borrowFactor]
+    );
+    return {
+      tx: tx.hash,
+      newParams: {
+        maxDepth,
+        borrowFactor: borrowFactor / 100 + "%"
+      }
+    };
+  }
+});
+```
+
+## Utility Helpers
+
+### Chain Read Helper
+
+```typescript src/agents/shared/utils/chain.ts
+import { ethers } from "ethers";
+import { env } from "../../../env";
+
+const provider = new ethers.JsonRpcProvider(env.RPC_URL, {
+  chainId: 11155111,
+  name: "sepolia",
+  ensNetwork: undefined,
+});
+
+const signer = new ethers.Wallet(env.PRIVATE_KEY, provider);
+
+export async function chain_read(contract: string, abi: any, method: string, args: any[] = []) {
+  const c = new ethers.Contract(contract, abi, provider);
+  return await c[method](...args);
+}
+
+export async function chain_write(contract: string, abi: any, method: string, args: any[] = []) {
+  const c = new ethers.Contract(contract, abi, signer);
+
+  // Estimate gas with 20% buffer
+  let gasLimit;
+  try {
+    const estimate = await c[method].estimateGas(...args);
+    gasLimit = estimate * 12n / 10n; // +20%
+  } catch (err) {
+    console.error("Gas estimation error:", err);
+    throw err;
+  }
+
+  // Get current network fees
+  const feeData = await provider.getFeeData();
+
+  const tx = await c[method](...args, {
+    gasLimit,
+    maxFeePerGas: feeData.maxFeePerGas,
+    maxPriorityFeePerGas: feeData.maxPriorityFeePerGas,
+  });
+
+  // Wait for confirmation
+  const receipt = await tx.wait();
+
+  return {
+    hash: tx.hash,
+    from: tx.from,
+    to: tx.to,
+    nonce: tx.nonce,
+    status: receipt.status,
+    gasUsed: receipt.gasUsed.toString(),
+  };
+}
+
+export function toStringBN(value: any): any {
+  if (typeof value === "bigint") return value.toString();
+  if (Array.isArray(value)) return value.map(v => toStringBN(v));
+  if (value && typeof value === "object") {
+    const out: any = {};
+    for (const k in value) out[k] = toStringBN(value[k]);
+    return out;
+  }
+  return value;
+}
+
+export { provider };
+```
+
+### BigInt Helpers
+
+```typescript src/agents/shared/utils/bigint.ts
+export function format18(value: string | bigint): string {
+  const bn = BigInt(value);
+  const divisor = BigInt(10 ** 18);
+  const whole = bn / divisor;
+  const remainder = bn % divisor;
+  const fraction = remainder.toString().padStart(18, '0').slice(0, 6);
+  return `${whole}.${fraction}`;
+}
+
+export function parseUnits(value: string, decimals: number = 18): bigint {
+  const [whole, fraction = ''] = value.split('.');
+  const paddedFraction = fraction.padEnd(decimals, '0').slice(0, decimals);
+  return BigInt(`${whole}${paddedFraction}`);
+}
+```
+
+## Best Practices
+
+### 1. Clear Descriptions
+
+Provide detailed descriptions to help the LLM understand when to use each tool:
+
+```typescript
+description: "Fetches real-time LINK and WETH prices from CoinGecko API (real market prices). Returns LINK and WETH prices in USD, and calculates LINK price per WETH ratio."
+```
+
+### 2. Type Safety
+
+Use Zod schemas for type-safe parameter validation:
+
+```typescript
+schema: z.object({
+  amount: z.string().describe("Amount to deposit in LINK"),
+  user: z.string().describe("Wallet address of the user")
+})
+```
+
+### 3. Error Handling
+
+Handle errors gracefully and provide informative messages:
+
+```typescript
+try {
+  const result = await chain_read(...);
+  return result;
+} catch (error: any) {
+  throw new Error(`Failed to read from contract: ${error.message}`);
+}
+```
+
+### 4. Return Structured Data
+
+Return both raw and human-readable data:
+
+```typescript
+return {
+  raw: {
+    totalAssets: totalAssets.toString(),
+    totalSupply: totalSupply.toString(),
+  },
+  human: {
+    totalAssets: format18(totalAssets.toString()),
+    totalSupply: format18(totalSupply.toString()),
+  }
+};
+```
+
+### 5. Gas Estimation
+
+Always estimate gas before sending transactions:
+
+```typescript
+const estimate = await c[method].estimateGas(...args);
+const gasLimit = estimate * 12n / 10n; // +20% buffer
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Building Agents" icon="robot" href="./building-agents">
+    Learn how to integrate tools into custom agents
+  </Card>
+  <Card title="Automation" icon="clock" href="./automation">
+    Set up automated tool execution with cron jobs
+  </Card>
+  <Card title="ADK-TS Integration" icon="code" href="./adk-ts-integration">
+    Understand the ADK-TS integration patterns
+  </Card>
+  <Card title="Smart Contracts" icon="file-contract" href="/contracts/vault">
+    Learn about the smart contracts your tools interact with
+  </Card>
+</CardGroup>

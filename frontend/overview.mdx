@@ -1,0 +1,376 @@
+---
+title: 'Frontend Architecture Overview'
+description: 'MetaVault AI frontend architecture built with Next.js 14, React, and TypeScript'
+---
+
+## Architecture Overview
+
+The MetaVault AI frontend is a modern Web3 application built with **Next.js 14** using the App Router, **React 18**, **TypeScript**, and **Tailwind CSS**. It provides a comprehensive dashboard for managing DeFi vault operations and interacting with an AI-powered assistant.
+
+## Tech Stack
+
+### Core Framework
+- **Next.js 14.2.0** - App Router with Server Components
+- **React 18.3.0** - UI library
+- **TypeScript 5.5.0** - Type safety
+- **Tailwind CSS 3.4.0** - Utility-first styling
+
+### Web3 Integration
+- **Wagmi 2.7.0** - React Hooks for Ethereum
+- **Viem 2.9.0** - TypeScript Ethereum library
+- **WalletConnect 2.21.10** - Multi-wallet support
+
+### State Management
+- **@tanstack/react-query 5.51.0** - Async state management
+- **Wagmi's built-in state** - Wallet and contract state
+
+### Utilities
+- **Ethers.js 6.13.0** - Additional Ethereum utilities
+- **Lucide React 0.400.0** - Icon library
+- **clsx 2.1.1** - Conditional class names
+
+## Project Structure
+
+```
+packages/frontend/
+├── src/
+│   ├── app/                    # Next.js 14 App Router
+│   │   ├── api/               # API routes
+│   │   │   ├── agent/         # AI agent chat endpoint
+│   │   │   └── vault/         # Vault data endpoints
+│   │   ├── layout.tsx         # Root layout with metadata
+│   │   ├── page.tsx           # Home page (main dashboard)
+│   │   ├── providers.tsx      # Wagmi & React Query providers
+│   │   └── globals.css        # Global styles
+│   ├── components/            # React components
+│   │   ├── VaultDashboard.tsx # Main vault dashboard
+│   │   ├── AgentChat.tsx      # AI assistant chat
+│   │   ├── WalletConnect.tsx  # Wallet connection UI
+│   │   ├── DepositModal.tsx   # Deposit workflow
+│   │   ├── WithdrawModal.tsx  # Withdraw workflow
+│   │   ├── StrategyCard.tsx   # Strategy display card
+│   │   └── DepositorsList.tsx # Active holders list
+│   ├── config/
+│   │   └── wagmi.ts           # Wagmi configuration
+│   └── lib/
+│       ├── contracts.ts       # Contract ABIs and addresses
+│       └── utils.ts           # Utility functions
+├── public/                    # Static assets
+├── next.config.js            # Next.js configuration
+├── tailwind.config.ts        # Tailwind configuration
+├── tsconfig.json             # TypeScript configuration
+└── package.json              # Dependencies
+```
+
+## App Router Structure
+
+### Root Layout (`src/app/layout.tsx:1`)
+
+The root layout wraps the entire application with metadata and providers:
+
+```tsx
+import { ReactNode } from "react";
+import type { Metadata } from "next";
+import { Inter } from "next/font/google";
+import "./globals.css";
+import { Providers } from "./providers";
+
+const inter = Inter({ subsets: ["latin"] });
+
+export const metadata: Metadata = {
+  title: "MetaVault AI",
+  description: "AI-Powered DeFi Vault Management",
+};
+
+export default function RootLayout({ children }: { children: ReactNode }) {
+  return (
+    <html lang="en">
+      <body className={inter.className}>
+        <Providers>{children}</Providers>
+      </body>
+    </html>
+  );
+}
+```
+
+### Providers Configuration (`src/app/providers.tsx:1`)
+
+Centralized provider setup for Wagmi and React Query:
+
+```tsx
+"use client"
+
+import { type ReactNode, useState } from 'react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { WagmiProvider, type State } from 'wagmi'
+import { config } from '@/config/wagmi'
+
+export function Providers({
+  children,
+  initialState
+}: {
+  children: ReactNode
+  initialState?: State
+}) {
+  const [queryClient] = useState(() => new QueryClient({
+    defaultOptions: {
+      queries: {
+        refetchOnWindowFocus: false,
+        refetchOnReconnect: true,
+        staleTime: 5 * 60 * 1000,
+        gcTime: 10 * 60 * 1000,
+        retry: 2,
+        retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+      },
+      mutations: {
+        retry: 1,
+      },
+    },
+  }))
+
+  return (
+    <WagmiProvider config={config} initialState={initialState} reconnectOnMount={true}>
+      <QueryClientProvider client={queryClient}>
+        {children}
+      </QueryClientProvider>
+    </WagmiProvider>
+  )
+}
+```
+
+**Key Configuration:**
+- Disabled automatic refetch on window focus to reduce RPC calls
+- 5-minute stale time and 10-minute garbage collection
+- Exponential backoff retry strategy
+- Automatic reconnection on mount
+
+### Main Page (`src/app/page.tsx:1`)
+
+The home page implements a tabbed interface with sidebar navigation:
+
+```tsx
+"use client";
+
+import { VaultDashboard } from "@/components/VaultDashboard";
+import { AgentChat } from "@/components/AgentChat";
+import { WalletConnect } from "@/components/WalletConnect";
+import { useState } from "react";
+import { LayoutDashboard, Bot } from "lucide-react";
+
+export default function Home() {
+  const [activeTab, setActiveTab] = useState<"vault" | "agent">("vault");
+
+  return (
+    <div className="flex min-h-screen bg-[#05050A]">
+      {/* Sidebar Navigation */}
+      <div className="w-64 glass-panel border-r border-white/5 p-6">
+        {/* Branding */}
+        <div className="mb-10">
+          <h1 className="text-xl font-bold text-white">
+            MetaVault <span className="text-blue-400">AI</span>
+          </h1>
+        </div>
+
+        {/* Navigation */}
+        <nav className="space-y-2">
+          <button onClick={() => setActiveTab("vault")}>
+            Dashboard
+          </button>
+          <button onClick={() => setActiveTab("agent")}>
+            AI Assistant
+          </button>
+        </nav>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1">
+        <header className="p-6">
+          <WalletConnect />
+        </header>
+        <main className="p-8">
+          {activeTab === "vault" && <VaultDashboard />}
+          {activeTab === "agent" && <AgentChat />}
+        </main>
+      </div>
+    </div>
+  );
+}
+```
+
+## API Routes
+
+### Agent Chat API (`src/app/api/agent/route.ts:1`)
+
+Proxy endpoint for AI assistant communication:
+
+```typescript
+import { NextRequest, NextResponse } from "next/server";
+
+export async function POST(request: NextRequest) {
+  const { message, sessionId, wallet } = await request.json();
+  
+  const AGENT_URL = process.env.AGENT_API_URL || "http://localhost:3002/chat";
+  
+  // Forward to Agent Backend
+  const agentRes = await fetch(AGENT_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    cache: "no-store",
+    body: JSON.stringify({ message, sessionId, wallet }),
+  });
+  
+  const data = await agentRes.json();
+  
+  return NextResponse.json({
+    success: true,
+    reply: data.reply,
+    sessionId: data.sessionId,
+    unsignedTx: data.unsignedTx || null,
+  });
+}
+```
+
+**Features:**
+- Session management for conversation continuity
+- Wallet address forwarding for personalized responses
+- Unsigned transaction handling for AI-initiated transactions
+
+## TypeScript Configuration
+
+### Path Aliases (`tsconfig.json:21`)
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "strict": true,
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  }
+}
+```
+
+Enables clean imports like `@/components/VaultDashboard` instead of relative paths.
+
+## Styling Architecture
+
+### Tailwind Configuration (`tailwind.config.ts:1`)
+
+```typescript
+import type { Config } from "tailwindcss";
+
+const config: Config = {
+  content: [
+    "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
+    "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
+    "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
+  ],
+  theme: {
+    extend: {
+      colors: {
+        background: "var(--background)",
+        foreground: "var(--foreground)",
+      },
+    },
+  },
+  plugins: [],
+};
+```
+
+### Custom Glass Morphism Styles
+
+The application uses custom glass-panel effects defined in `globals.css`:
+
+```css
+.glass-panel {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+```
+
+## Environment Variables
+
+```bash
+# Wagmi Configuration
+NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_project_id
+NEXT_PUBLIC_RPC_URL=https://sepolia.infura.io/v3/your_key
+
+# Contract Addresses
+NEXT_PUBLIC_VAULT_ADDRESS=0x...
+NEXT_PUBLIC_ROUTER_ADDRESS=0x...
+NEXT_PUBLIC_STRATEGY_AAVE_ADDRESS=0x...
+NEXT_PUBLIC_STRATEGY_LEVERAGE_ADDRESS=0x...
+NEXT_PUBLIC_LINK_ADDRESS=0x...
+
+# Agent Backend
+AGENT_API_URL=http://localhost:3002/chat
+```
+
+## Build Configuration
+
+### Next.js Config (`next.config.js:1`)
+
+```javascript
+const nextConfig = {
+  webpack: (config) => {
+    // Externalize Node.js-only dependencies
+    config.externals.push("pino-pretty", "lokijs", "encoding");
+    return config;
+  },
+};
+```
+
+Externalizes packages that cause issues in browser environments.
+
+## Development Workflow
+
+### Running Locally
+
+```bash
+cd packages/frontend
+npm install
+npm run dev
+```
+
+Runs on `http://localhost:3000`
+
+### Building for Production
+
+```bash
+npm run build
+npm run start
+```
+
+### Type Checking
+
+```bash
+npm run lint
+```
+
+## Performance Optimizations
+
+1. **React Query Caching** - 5-minute stale time reduces RPC calls
+2. **Selective Refetching** - Disabled window focus refetch
+3. **Event-Driven Updates** - Real-time contract event listeners
+4. **SSR Support** - Cookie-based storage for server-side rendering
+5. **Batch RPC Calls** - Multicall enabled for multiple reads
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="React Components" icon="shapes" href="/frontend/components">
+    Learn about the component architecture and patterns
+  </Card>
+  <Card title="Web3 Integration" icon="link" href="/frontend/web3-integration">
+    Deep dive into Wagmi and Viem usage patterns
+  </Card>
+</CardGroup>

@@ -1,0 +1,320 @@
+---
+title: 'Local Development Setup'
+description: 'Set up your local development environment for MetaVault AI'
+---
+
+## Prerequisites
+
+Before you begin, ensure you have the following installed on your system:
+
+<CardGroup cols={2}>
+  <Card title="Node.js" icon="node-js">
+    Version 18 or higher recommended
+  </Card>
+  <Card title="pnpm" icon="box">
+    Fast, disk space efficient package manager
+  </Card>
+  <Card title="MetaMask" icon="wallet">
+    Or another Web3 wallet for blockchain interactions
+  </Card>
+  <Card title="Git" icon="code-branch">
+    For cloning the repository
+  </Card>
+</CardGroup>
+
+### Installing Prerequisites
+
+<AccordionGroup>
+  <Accordion title="Install Node.js">
+    Download and install Node.js from [nodejs.org](https://nodejs.org/). We recommend using the LTS version.
+
+    Verify installation:
+    ```bash
+    node --version
+    # Should show v18.x.x or higher
+    ```
+  </Accordion>
+
+  <Accordion title="Install pnpm">
+    MetaVault AI uses pnpm as its package manager. Install it globally:
+
+    ```bash
+    npm install -g pnpm
+    ```
+
+    Verify installation:
+    ```bash
+    pnpm --version
+    # Should show 10.18.3 or higher
+    ```
+  </Accordion>
+
+  <Accordion title="Install MetaMask">
+    Install the MetaMask browser extension from [metamask.io](https://metamask.io/).
+
+    You'll need this to interact with the vault through the frontend.
+  </Accordion>
+</AccordionGroup>
+
+## Repository Structure
+
+MetaVault AI is a monorepo containing three main packages:
+
+```
+metavault-ai/
+├── packages/
+│   ├── contracts/       # Hardhat project with smart contracts
+│   ├── frontend/        # Next.js web application
+│   └── agents/          # AI agents built with ADK-TS
+│       └── defi-portfolio/
+├── package.json         # Root package with workspace scripts
+└── pnpm-workspace.yaml  # pnpm workspace configuration
+```
+
+<Note>
+  Each package can be developed independently, but they work together to form the complete MetaVault AI system.
+</Note>
+
+## Initial Setup
+
+<Steps>
+  <Step title="Clone the Repository">
+    Clone the MetaVault AI repository to your local machine:
+
+    ```bash
+    git clone <repository-url>
+    cd metavault-ai
+    ```
+  </Step>
+
+  <Step title="Install Dependencies">
+    Install all dependencies for the entire monorepo:
+
+    ```bash
+    pnpm install
+    ```
+
+    This command will:
+    - Install root-level dependencies
+    - Install dependencies for all packages (contracts, frontend, agents)
+    - Set up workspace links between packages
+
+    <Tip>
+      The installation uses pnpm workspaces, which efficiently manages dependencies across the monorepo and creates symlinks between packages.
+    </Tip>
+  </Step>
+
+  <Step title="Configure Smart Contracts">
+    Navigate to the contracts package and set up environment variables:
+
+    ```bash
+    cd packages/contracts
+    cp .env.example .env
+    ```
+
+    Edit `.env` and add your configuration:
+
+    ```bash
+    # Deployer Wallet Private Key
+    PRIVATE_KEY=your_private_key_here
+
+    # INFURA API Key (optional for local development)
+    INFURA_KEY=your_infura_key
+    ```
+
+    <Warning>
+      Never commit your `.env` file or share your private key. Use a test wallet with no real funds for development.
+    </Warning>
+  </Step>
+
+  <Step title="Configure AI Agents">
+    Navigate to the agents package and set up environment variables:
+
+    ```bash
+    cd packages/agents/defi-portfolio
+    cp .env.example .env
+    ```
+
+    Edit `.env` and configure the following:
+
+    ```bash
+    # ADK Configuration
+    ADK_DEBUG="false"
+
+    # OpenRouter API Key for LLM
+    OPEN_ROUTER_KEY=your_openrouter_key
+    LLM_MODEL=anthropic/claude-3.5-sonnet
+
+    # Server Ports
+    PORT=3001
+    CHAT_PORT=3002
+
+    # Telegram (optional)
+    TELEGRAM_BOT_TOKEN=
+    TELEGRAM_CHANNEL_ID=
+
+    # Blockchain
+    RPC_URL=http://127.0.0.1:8545
+    PRIVATE_KEY=your_private_key_here
+
+    # Contract addresses (will be filled after deployment)
+    VAULT_ADDRESS=
+    ROUTER_ADDRESS=
+    STRATEGY_LEVERAGE_ADDRESS=
+    STRATEGY_AAVE_ADDRESS=
+    LINK_ADDRESS=
+    MOCK_AAVE_POOL_ADDRESS=
+    ```
+
+    <Info>
+      You'll need to obtain an OpenRouter API key from [openrouter.ai](https://openrouter.ai) to run the AI agents. Contract addresses will be populated after deploying the contracts.
+    </Info>
+  </Step>
+
+  <Step title="Configure Frontend">
+    Navigate to the frontend package and set up environment variables:
+
+    ```bash
+    cd packages/frontend
+    cp .env.example .env.local
+    ```
+
+    Edit `.env.local`:
+
+    ```bash
+    # RPC
+    RPC_URL=http://127.0.0.1:8545
+    PRIVATE_KEY=your_private_key_here
+
+    # Agent API
+    AGENT_API_URL=http://localhost:3002
+
+    # Contract addresses (will be filled after deployment)
+    NEXT_PUBLIC_VAULT_ADDRESS=
+    NEXT_PUBLIC_ROUTER_ADDRESS=
+    NEXT_PUBLIC_STRATEGY_LEVERAGE_ADDRESS=
+    NEXT_PUBLIC_STRATEGY_AAVE_ADDRESS=
+    NEXT_PUBLIC_LINK_ADDRESS=
+    ```
+  </Step>
+
+  <Step title="Compile Contracts">
+    Return to the contracts directory and compile the smart contracts:
+
+    ```bash
+    cd packages/contracts
+    pnpm hardhat compile
+    ```
+
+    Or from the root:
+
+    ```bash
+    pnpm contracts:compile
+    ```
+
+    This will generate TypeScript types and compile all Solidity contracts.
+  </Step>
+</Steps>
+
+## Verify Installation
+
+To verify your setup is complete, run these checks:
+
+<Tabs>
+  <Tab title="Contracts">
+    ```bash
+    cd packages/contracts
+    pnpm hardhat compile
+    ```
+    Should compile without errors.
+  </Tab>
+
+  <Tab title="Agents">
+    ```bash
+    cd packages/agents/defi-portfolio
+    pnpm build
+    ```
+    Should build TypeScript files successfully.
+  </Tab>
+
+  <Tab title="Frontend">
+    ```bash
+    cd packages/frontend
+    pnpm build
+    ```
+    Should build the Next.js application.
+  </Tab>
+</Tabs>
+
+## Tech Stack Overview
+
+<CardGroup cols={3}>
+  <Card title="Smart Contracts" icon="file-contract">
+    - Solidity 0.8.28
+    - Hardhat 2.26.5
+    - OpenZeppelin 5.4.0
+  </Card>
+
+  <Card title="Frontend" icon="browser">
+    - Next.js 14
+    - TypeScript 5.5
+    - Wagmi & Viem
+    - Tailwind CSS
+  </Card>
+
+  <Card title="AI Agents" icon="robot">
+    - ADK-TS 0.5.7
+    - Express 5.2.1
+    - TypeScript 5.9
+    - node-cron 4.2.1
+  </Card>
+</CardGroup>
+
+## Common Issues
+
+<AccordionGroup>
+  <Accordion title="pnpm command not found">
+    Make sure pnpm is installed globally:
+    ```bash
+    npm install -g pnpm
+    ```
+  </Accordion>
+
+  <Accordion title="Node version mismatch">
+    Check your Node.js version:
+    ```bash
+    node --version
+    ```
+    Update to Node.js 18 or higher if needed.
+  </Accordion>
+
+  <Accordion title="Compilation errors in contracts">
+    Try cleaning and reinstalling:
+    ```bash
+    cd packages/contracts
+    rm -rf cache artifacts node_modules
+    pnpm install
+    pnpm hardhat compile
+    ```
+  </Accordion>
+
+  <Accordion title="Port already in use">
+    If ports 3000, 3001, 3002, or 8545 are already in use, you can:
+    - Change the ports in your `.env` files
+    - Kill the process using the port
+    - Use different port numbers in your configuration
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+Now that your environment is set up, you can:
+
+<CardGroup cols={2}>
+  <Card title="Run Locally" icon="play" href="/development/running-locally">
+    Learn how to run the full stack locally
+  </Card>
+  <Card title="Testing Guide" icon="vial" href="/development/testing">
+    Run tests and verify functionality
+  </Card>
+</CardGroup>

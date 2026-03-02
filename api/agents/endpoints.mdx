@@ -1,0 +1,257 @@
+---
+title: 'Agent API Endpoints'
+description: 'REST API endpoints for MetaVault AI Agent system'
+icon: 'webhook'
+---
+
+## Overview
+
+The MetaVault AI Agent system exposes a REST API for interacting with the Chat Agent and Strategy Sentinel Agent. The API provides endpoints for chat interactions, session management, and health monitoring.
+
+**Base URL**: `http://localhost:8080` (configurable via `CHAT_PORT` environment variable)
+
+## Authentication
+
+No authentication is currently required. Wallet addresses are passed in request bodies to identify users.
+
+## Endpoints
+
+### Health Check
+
+<RequestExample>
+```bash
+curl http://localhost:8080/health
+```
+</RequestExample>
+
+<ResponseField name="status" type="string">
+  Server status ("ok" when running)
+</ResponseField>
+
+<ResponseField name="agent" type="string">
+  Agent initialization status ("ready" or "initializing")
+</ResponseField>
+
+<ResponseField name="timestamp" type="string">
+  ISO 8601 timestamp of the response
+</ResponseField>
+
+<ResponseField name="sessions" type="number">
+  Number of active chat sessions
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "status": "ok",
+  "agent": "ready",
+  "timestamp": "2026-03-02T10:30:00.000Z",
+  "sessions": 3
+}
+```
+</ResponseExample>
+
+### Chat with Agent
+
+Send a message to the Chat Agent and receive a response with optional unsigned transactions.
+
+<RequestExample>
+```bash
+curl -X POST http://localhost:8080/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "What is my vault balance?",
+    "wallet": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
+    "sessionId": "1234567890"
+  }'
+```
+</RequestExample>
+
+<ParamField body="message" type="string" required>
+  User message to send to the agent
+</ParamField>
+
+<ParamField body="wallet" type="string" required>
+  User's wallet address (required for all operations)
+</ParamField>
+
+<ParamField body="sessionId" type="string">
+  Session ID to maintain conversation history. If not provided, a new session is created.
+</ParamField>
+
+<ResponseField name="success" type="boolean">
+  Whether the request was successful
+</ResponseField>
+
+<ResponseField name="sessionId" type="string">
+  Session ID for this conversation
+</ResponseField>
+
+<ResponseField name="reply" type="string">
+  Agent's text response to the user
+</ResponseField>
+
+<ResponseField name="history" type="array">
+  Full conversation history for this session
+</ResponseField>
+
+<ResponseField name="unsignedTx" type="object" default="null">
+  Unsigned transaction for the user to sign, if applicable
+  <Expandable title="properties">
+    <ResponseField name="to" type="string">
+      Contract address to send transaction to
+    </ResponseField>
+    <ResponseField name="data" type="string">
+      Encoded function call data
+    </ResponseField>
+    <ResponseField name="value" type="string">
+      ETH value to send (usually "0" for token operations)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="step" type="string">
+  Current transaction step ("approval", "deposit", "withdrawal", "info")
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "success": true,
+  "sessionId": "1234567890",
+  "reply": "Your vault balance is 100.50 LINK (equivalent to 95.23 shares).",
+  "history": [
+    {
+      "role": "user",
+      "content": "What is my vault balance?"
+    },
+    {
+      "role": "assistant",
+      "content": "Your vault balance is 100.50 LINK (equivalent to 95.23 shares)."
+    }
+  ],
+  "unsignedTx": null,
+  "step": "info"
+}
+```
+</ResponseExample>
+
+### Get Session History
+
+Retrieve the full conversation history for a specific session.
+
+<RequestExample>
+```bash
+curl http://localhost:8080/session/1234567890
+```
+</RequestExample>
+
+<ResponseField name="success" type="boolean">
+  Whether the request was successful
+</ResponseField>
+
+<ResponseField name="sessionId" type="string">
+  Session ID
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  Session data
+  <Expandable title="properties">
+    <ResponseField name="history" type="array">
+      Array of chat messages
+    </ResponseField>
+    <ResponseField name="createdAt" type="string">
+      ISO 8601 timestamp when session was created
+    </ResponseField>
+    <ResponseField name="updatedAt" type="string">
+      ISO 8601 timestamp when session was last updated
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "success": true,
+  "sessionId": "1234567890",
+  "data": {
+    "history": [
+      {
+        "role": "user",
+        "content": "What is my balance?"
+      },
+      {
+        "role": "assistant",
+        "content": "Your vault balance is 100.50 LINK."
+      }
+    ],
+    "createdAt": "2026-03-02T10:00:00.000Z",
+    "updatedAt": "2026-03-02T10:15:00.000Z"
+  }
+}
+```
+</ResponseExample>
+
+### Reset Session
+
+Clear the conversation history for a specific session.
+
+<RequestExample>
+```bash
+curl -X POST http://localhost:8080/session/reset/1234567890
+```
+</RequestExample>
+
+<ResponseField name="success" type="boolean">
+  Whether the request was successful
+</ResponseField>
+
+<ResponseField name="sessionId" type="string">
+  Session ID that was reset
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Confirmation message
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "success": true,
+  "sessionId": "1234567890",
+  "message": "Session reset"
+}
+```
+</ResponseExample>
+
+## Error Responses
+
+All endpoints return error responses in the following format:
+
+<ResponseField name="error" type="string">
+  Error message describing what went wrong
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "error": "Wallet address is required"
+}
+```
+</ResponseExample>
+
+Common error status codes:
+- `400` - Bad request (missing required parameters)
+- `404` - Session not found
+- `500` - Internal server error (agent failure)
+
+## Session Management
+
+- Sessions are stored in-memory and will be lost on server restart
+- Each session maintains its own conversation history
+- Session IDs can be any string (typically timestamps or UUIDs)
+- Sessions are created automatically when a new session ID is used
+
+## Rate Limiting
+
+No rate limiting is currently enforced. Implement your own rate limiting in production environments.

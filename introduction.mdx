@@ -1,0 +1,123 @@
+---
+title: Introduction
+description: An AI-powered DeFi vault managed by intelligent agents built with ADK-TS
+---
+
+# Welcome to MetaVault AI
+
+MetaVault AI is an intelligent DeFi vault that combines secure smart contracts with AI agents to optimize your yield strategies. Built using the Agent Development Kit for TypeScript (ADK-TS) by IQAI, it demonstrates how autonomous agents can monitor, manage, and optimize DeFi positions in real-time.
+
+## Quick start
+
+<CardGroup cols={2}>
+  <Card
+    title="How it works"
+    icon="gears"
+    href="/how-it-works"
+  >
+    Learn about the vault architecture and AI agent system
+  </Card>
+  <Card
+    title="Key features"
+    icon="stars"
+    href="/key-features"
+  >
+    Discover what makes MetaVault AI unique
+  </Card>
+  <Card
+    title="Getting started"
+    icon="rocket"
+    href="/getting-started/installation"
+  >
+    Set up and run the full stack locally
+  </Card>
+  <Card
+    title="API reference"
+    icon="code"
+    href="/api/contracts/vault"
+  >
+    Explore smart contract interfaces and agent tools
+  </Card>
+</CardGroup>
+
+## What is MetaVault AI?
+
+MetaVault AI is a DeFi vault that automatically manages your funds across multiple strategies to maximize yield while minimizing risk. Unlike traditional vaults that rely on predetermined rules, MetaVault AI uses autonomous agents that can:
+
+- Monitor strategy health in real-time
+- Detect and respond to market changes
+- Automatically adjust leverage and allocations
+- Harvest yields and compound returns
+- Interact with users through natural language
+
+<Note>
+  MetaVault AI currently runs on mock contracts for testing purposes, simulating Aave V3 mechanics. All liquidation thresholds, interest accrual, and borrowing flows use mocked logic for predictable testing.
+</Note>
+
+## Architecture overview
+
+The system is built as a monorepo with three main packages:
+
+### Smart contracts
+
+Solidity contracts deployed on-chain that handle:
+- User deposits and withdrawals
+- Strategy allocation and routing
+- Fee management and accounting
+- Yield distribution
+
+### AI agents
+
+TypeScript agents built with ADK-TS that:
+- Monitor vault and strategy health
+- Execute autonomous management decisions
+- Provide user assistance via chat
+- Simulate yields for testing
+
+### Frontend
+
+A Next.js web application where users can:
+- Connect their wallet
+- Deposit and withdraw funds
+- View real-time performance metrics
+- Chat with the AI assistant
+
+## Tech stack
+
+- **Smart contracts**: Solidity ^0.8.28, Hardhat, OpenZeppelin
+- **Frontend**: Next.js 14, TypeScript, Tailwind CSS, Wagmi, Viem
+- **AI agents**: ADK-TS, Node.js, Express
+- **DeFi protocols**: Aave V3 (mocked), Uniswap V2 (mocked)
+
+## Repository structure
+
+```
+defi-portfolio/
+├── packages/
+│   ├── contracts/       # Hardhat project with vault and strategy contracts
+│   ├── frontend/        # Next.js web application
+│   └── agents/          # AI agents built with ADK-TS
+│       └── defi-portfolio/
+│           ├── src/
+│           │   ├── agents/
+│           │   │   ├── sub-agents/
+│           │   │   │   ├── strategy-sentinel-agent/
+│           │   │   │   ├── chat-agent/
+│           │   │   │   └── yield-generator-agent/
+│           │   │   └── agent.ts
+│           │   ├── crons/
+│           │   └── server.ts
+│           └── package.json
+└── pnpm-workspace.yaml
+```
+
+## Next steps
+
+<CardGroup cols={1}>
+  <Card title="Understand how the system works" icon="book" href="/how-it-works">
+    Dive deep into the vault mechanics, strategies, and AI agent architecture
+  </Card>
+  <Card title="Explore key features" icon="compass" href="/key-features">
+    Learn about autonomous monitoring, risk management, and leverage optimization
+  </Card>
+</CardGroup>

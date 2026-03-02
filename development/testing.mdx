@@ -1,0 +1,613 @@
+---
+title: 'Testing Guide'
+description: 'Run tests and verify functionality in MetaVault AI'
+---
+
+## Overview
+
+MetaVault AI includes comprehensive testing for smart contracts and provides guidelines for testing AI agents and frontend functionality.
+
+<Info>
+  Testing ensures the vault operates correctly and safely manages user funds. Always run tests before deploying to production.
+</Info>
+
+## Test Structure
+
+The project includes tests at different levels:
+
+<CardGroup cols={3}>
+  <Card title="Contract Tests" icon="file-contract">
+    Unit and integration tests for smart contracts using Hardhat and Chai
+  </Card>
+
+  <Card title="Agent Testing" icon="robot">
+    Manual and automated testing of AI agent behaviors
+  </Card>
+
+  <Card title="Integration Tests" icon="link">
+    End-to-end tests covering the full stack
+  </Card>
+</CardGroup>
+
+## Smart Contract Testing
+
+### Running Contract Tests
+
+Navigate to the contracts package and run the test suite:
+
+<CodeGroup>
+  ```bash Root Directory
+  pnpm contracts:test
+  ```
+
+  ```bash Contracts Directory
+  cd packages/contracts
+  pnpm hardhat test
+  ```
+</CodeGroup>
+
+### Test Configuration
+
+The Hardhat configuration includes:
+
+```typescript hardhat.config.ts
+const config: HardhatUserConfig = {
+  solidity: {
+    version: "0.8.28",
+    settings: {
+      optimizer: {
+        enabled: true,
+        runs: 200,
+      },
+      viaIR: true
+    }
+  },
+  networks: {
+    hardhat: {
+      forking: {
+        url: `https://sepolia.infura.io/v3/${process.env.INFURA_KEY}`,
+      }
+    }
+  }
+};
+```
+
+<Note>
+  Tests run on a local Hardhat network that can fork Sepolia testnet for realistic testing conditions.
+</Note>
+
+### Writing Contract Tests
+
+Contract tests are located in `packages/contracts/test/` and use the following structure:
+
+```typescript
+import { expect } from "chai";
+import { ethers } from "hardhat";
+import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
+
+describe("MetaVault", function () {
+  async function deployVaultFixture() {
+    const [owner, user1] = await ethers.getSigners();
+    
+    // Deploy contracts
+    const Vault = await ethers.getContractFactory("MetaVault");
+    const vault = await Vault.deploy();
+    
+    return { vault, owner, user1 };
+  }
+
+  it("Should allow deposits", async function () {
+    const { vault, user1 } = await loadFixture(deployVaultFixture);
+    // Test logic
+  });
+});
+```
+
+### Test Coverage
+
+Generate a coverage report:
+
+```bash
+cd packages/contracts
+pnpm hardhat coverage
+```
+
+This creates a detailed coverage report showing:
+- Line coverage
+- Branch coverage
+- Function coverage
+- Statement coverage
+
+<Tip>
+  Aim for at least 80% coverage on critical contract functionality like deposits, withdrawals, and strategy management.
+</Tip>
+
+## Testing with Mock Contracts
+
+MetaVault AI uses mock contracts to simulate DeFi protocols:
+
+<Steps>
+  <Step title="Deploy Mock Contracts">
+    Deploy the complete mock environment:
+
+    ```bash
+    pnpm contracts:deploy:local
+    ```
+
+    This deploys:
+    - Mock LINK and WETH tokens
+    - Mock Aave Pool (simulates lending)
+    - Mock Swap Router (simulates Uniswap)
+    - MetaVault and strategies
+  </Step>
+
+  <Step title="Run Testing Script">
+    Use the testing script to simulate various scenarios:
+
+    ```bash
+    cd packages/contracts
+    pnpm hardhat run scripts/testing.ts --network localhost
+    ```
+
+    This script can:
+    - Simulate deposits and withdrawals
+    - Test strategy allocations
+    - Trigger yield accrual
+    - Test emergency scenarios
+  </Step>
+
+  <Step title="Verify Results">
+    Check the console output for:
+    - Transaction confirmations
+    - Balance changes
+    - Strategy performance
+    - Gas usage estimates
+  </Step>
+</Steps>
+
+## AI Agent Testing
+
+Test the AI agents to ensure they manage the vault correctly:
+
+### Manual Agent Testing
+
+<Steps>
+  <Step title="Start Test Environment">
+    Ensure all services are running:
+    ```bash
+    # Terminal 1: Blockchain
+    pnpm dev:contracts
+
+    # Terminal 2: Deploy contracts
+    pnpm contracts:deploy:local
+
+    # Terminal 3: Agents
+    pnpm dev:agents
+    ```
+  </Step>
+
+  <Step title="Test Strategy Sentinel">
+    The Strategy Sentinel Agent monitors vault health. Test by:
+
+    1. Checking initial strategy state
+    2. Simulating market volatility (adjust mock prices)
+    3. Observing agent responses
+    4. Verifying rebalancing actions
+
+    Monitor agent logs for decisions:
+    ```
+    🛡️ Strategy Sentinel: Checking vault health...
+    📊 LTV Ratio: 65%
+    ⚠️  High volatility detected
+    🔄 Rebalancing portfolio...
+    ✅ Rebalance complete
+    ```
+  </Step>
+
+  <Step title="Test Chat Agent">
+    Test the user-facing chat agent:
+
+    ```bash
+    # Send test request to chat endpoint
+    curl -X POST http://localhost:3002/chat \
+      -H "Content-Type: application/json" \
+      -d '{
+        "message": "What is my vault balance?",
+        "userAddress": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+      }'
+    ```
+
+    Test various queries:
+    - Balance inquiries
+    - Deposit/withdrawal requests
+    - Strategy information
+    - Market conditions
+  </Step>
+
+  <Step title="Test Yield Simulator">
+    Simulate yield generation:
+
+    ```bash
+    # Call yield simulator endpoint
+    curl -X POST http://localhost:3001/simulate-yield \
+      -H "Content-Type: application/json" \
+      -d '{
+        "amount": "1000",
+        "duration": "30"
+      }'
+    ```
+  </Step>
+</Steps>
+
+### Automated Agent Testing
+
+Test automation capabilities:
+
+<CodeGroup>
+  ```bash Start Automation
+  cd packages/agents/defi-portfolio
+  pnpm run automate:cron
+  ```
+
+  ```bash With Debug Logs
+  # Enable debug in .env
+  ADK_DEBUG="true"
+
+  pnpm run automate:cron
+  ```
+</CodeGroup>
+
+The automation will:
+- Run every 5 minutes (configurable)
+- Monitor strategy health
+- Check liquidation risks
+- Perform rebalancing if needed
+- Harvest and compound yields
+
+<Warning>
+  Automated testing should only run on test networks. Never run automation on mainnet without thorough testing.
+</Warning>
+
+## Frontend Testing
+
+### Manual Frontend Testing
+
+<Steps>
+  <Step title="Start Development Server">
+    ```bash
+    cd packages/frontend
+    pnpm dev
+    ```
+
+    Access at http://localhost:3000
+  </Step>
+
+  <Step title="Test Wallet Connection">
+    1. Connect MetaMask to localhost network
+    2. Import test account from Hardhat
+    3. Connect wallet through UI
+    4. Verify account displays correctly
+  </Step>
+
+  <Step title="Test Core Functions">
+    Test the main user flows:
+
+    **Deposit Flow:**
+    - Navigate to deposit interface
+    - Enter amount to deposit
+    - Approve token spending (if needed)
+    - Confirm deposit transaction
+    - Verify balance updates
+
+    **Withdrawal Flow:**
+    - Navigate to withdrawal interface
+    - Enter amount to withdraw
+    - Confirm withdrawal transaction
+    - Verify balance updates
+
+    **Chat Interface:**
+    - Open chat widget
+    - Send test messages
+    - Verify AI responses
+    - Test different query types
+  </Step>
+
+  <Step title="Test Strategy Display">
+    Verify strategy information displays correctly:
+    - Strategy names and descriptions
+    - Current allocations
+    - APY/returns
+    - Risk levels
+    - Historical performance
+  </Step>
+</Steps>
+
+### Linting and Type Checking
+
+Run code quality checks:
+
+```bash
+cd packages/frontend
+
+# Run ESLint
+pnpm lint
+
+# Type check with TypeScript
+pnpm tsc --noEmit
+```
+
+## Integration Testing
+
+Test the complete system working together:
+
+### End-to-End Test Scenario
+
+<Steps>
+  <Step title="Setup">
+    Start all services:
+    ```bash
+    pnpm dev:all
+    ```
+
+    Deploy contracts and update environment variables.
+  </Step>
+
+  <Step title="User Deposit">
+    1. Connect wallet to frontend
+    2. Approve LINK token spending
+    3. Deposit 1000 LINK tokens
+    4. Verify:
+       - Transaction confirms
+       - Vault balance increases
+       - User receives vault shares
+       - Frontend updates balance
+  </Step>
+
+  <Step title="Strategy Allocation">
+    1. Check initial strategy allocations
+    2. Verify funds distributed correctly
+    3. Monitor agent logs for allocation decisions
+    4. Confirm strategies receive funds
+  </Step>
+
+  <Step title="Yield Generation">
+    1. Wait for yield to accrue (or simulate)
+    2. Check updated vault value
+    3. Verify yield calculation
+    4. Test harvest functionality
+  </Step>
+
+  <Step title="Agent Actions">
+    1. Trigger agent automation
+    2. Monitor rebalancing decisions
+    3. Verify risk management
+    4. Check strategy adjustments
+  </Step>
+
+  <Step title="User Withdrawal">
+    1. Request withdrawal through frontend
+    2. Verify:
+       - Transaction confirms
+       - Correct amount withdrawn
+       - Vault shares burned
+       - Strategies unwind if needed
+       - User receives tokens
+  </Step>
+</Steps>
+
+## Performance Testing
+
+Test system performance and gas usage:
+
+### Gas Usage Analysis
+
+```bash
+cd packages/contracts
+pnpm hardhat test --gas-report
+```
+
+This generates a gas report showing:
+- Gas per function call
+- Average gas costs
+- Deployment costs
+
+<Tip>
+  Optimize functions with high gas usage. The Solidity optimizer is enabled with 200 runs, balancing deployment and execution costs.
+</Tip>
+
+### Load Testing Agents
+
+Test agent performance under load:
+
+```bash
+# Send multiple concurrent requests
+for i in {1..10}; do
+  curl -X POST http://localhost:3002/chat \
+    -H "Content-Type: application/json" \
+    -d '{"message": "What is the vault TVL?"}' &
+done
+wait
+```
+
+Monitor:
+- Response times
+- Memory usage
+- CPU utilization
+- Error rates
+
+## Debugging Tests
+
+### Hardhat Console
+
+Debug contracts interactively:
+
+```bash
+cd packages/contracts
+pnpm hardhat console --network localhost
+```
+
+```javascript
+// Example: Check vault state
+const Vault = await ethers.getContractFactory("MetaVault");
+const vault = await Vault.attach("0x...");
+const balance = await vault.totalAssets();
+console.log("Total assets:", balance.toString());
+```
+
+### Agent Debug Logs
+
+Enable detailed logging:
+
+```bash
+# In packages/agents/defi-portfolio/.env
+ADK_DEBUG="true"
+```
+
+Logs will show:
+- Tool invocations
+- Agent decisions
+- State changes
+- Error traces
+
+### Frontend DevTools
+
+Use browser developer tools:
+- Console for errors and warnings
+- Network tab for API calls
+- React DevTools for component state
+- MetaMask for transaction details
+
+## Test Checklist
+
+Before deploying or major changes:
+
+<Accordion title="Contract Tests">
+  - [ ] All unit tests pass
+  - [ ] Coverage above 80%
+  - [ ] Gas usage optimized
+  - [ ] Edge cases covered
+  - [ ] Mock contracts work correctly
+</Accordion>
+
+<Accordion title="Agent Tests">
+  - [ ] Strategy Sentinel monitors correctly
+  - [ ] Chat Agent responds appropriately
+  - [ ] Yield Simulator generates accurate projections
+  - [ ] Automation runs without errors
+  - [ ] Error handling works
+</Accordion>
+
+<Accordion title="Frontend Tests">
+  - [ ] Wallet connection works
+  - [ ] Deposits process correctly
+  - [ ] Withdrawals work as expected
+  - [ ] UI updates reflect blockchain state
+  - [ ] Chat interface functions
+  - [ ] Mobile responsive
+</Accordion>
+
+<Accordion title="Integration Tests">
+  - [ ] Full deposit-to-withdrawal flow works
+  - [ ] Agents interact with contracts correctly
+  - [ ] Frontend displays accurate data
+  - [ ] Error states handled gracefully
+  - [ ] Multi-user scenarios work
+</Accordion>
+
+## Continuous Integration
+
+Set up CI/CD for automated testing:
+
+```yaml .github/workflows/test.yml
+name: Test Suite
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: pnpm/action-setup@v2
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          cache: 'pnpm'
+      
+      - run: pnpm install
+      - run: pnpm contracts:test
+      - run: pnpm build:frontend
+      - run: pnpm build:agents
+```
+
+## Common Issues
+
+<AccordionGroup>
+  <Accordion title="Tests failing after contract changes">
+    Recompile contracts and regenerate types:
+    ```bash
+    cd packages/contracts
+    pnpm hardhat clean
+    pnpm hardhat compile
+    ```
+  </Accordion>
+
+  <Accordion title="Agent tests timing out">
+    Ensure:
+    - Contracts are deployed
+    - RPC URL is correct
+    - OpenRouter API key is valid
+    - Increase timeout in test config
+  </Accordion>
+
+  <Accordion title="Frontend tests fail on CI">
+    Common causes:
+    - Missing environment variables
+    - Node version mismatch
+    - Cache issues
+
+    Use consistent Node.js version and clear cache:
+    ```bash
+    pnpm store prune
+    ```
+  </Accordion>
+
+  <Accordion title="Gas usage too high">
+    Optimize contracts:
+    - Use `memory` instead of `storage` where possible
+    - Batch operations
+    - Optimize loops
+    - Use events instead of storage for historical data
+  </Accordion>
+</AccordionGroup>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Test Isolation" icon="flask">
+    Each test should be independent and not rely on previous test state
+  </Card>
+
+  <Card title="Clear Assertions" icon="check">
+    Use descriptive test names and clear assertion messages
+  </Card>
+
+  <Card title="Test Edge Cases" icon="triangle-exclamation">
+    Test boundary conditions, zero values, and error states
+  </Card>
+
+  <Card title="Mock External Calls" icon="plug">
+    Use mocks for external protocols to ensure consistent test results
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Architecture" icon="diagram-project" href="/architecture/system-overview">
+    Understand the system architecture
+  </Card>
+  <Card title="Smart Contracts" icon="file-contract" href="/contracts/vault">
+    Learn about the smart contract design
+  </Card>
+</CardGroup>

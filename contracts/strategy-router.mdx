@@ -1,0 +1,397 @@
+---
+title: 'Strategy Router'
+description: 'Strategy Router contract for managing multi-strategy fund allocation'
+---
+
+## Overview
+
+The StrategyRouter manages fund allocation across multiple DeFi strategies, handles rebalancing, and coordinates strategy operations like harvesting and deleveraging.
+
+## Contract Architecture
+
+```solidity
+contract StrategyRouter is Ownable {
+    // Vault that holds the tokens
+    IVault public immutable vault;
+    
+    // Strategy list
+    address[] public strategies;
+    
+    // Allocation targets in basis points (10000 = 100%)
+    mapping(address => uint256) public targetBps;
+}
+```
+
+**Source:** `contracts/strategy/StrategyRouter.sol:18-27`
+
+## Constructor
+
+```solidity
+constructor(address _vault, address _owner) Ownable(_owner) {
+    require(_vault != address(0), "vault=0");
+    vault = IVault(_vault);
+}
+```
+
+**Source:** `contracts/strategy/StrategyRouter.sol:36-39`
+
+## Strategy Management
+
+### Set Strategies
+
+Configure strategies and their target allocations:
+
+```solidity
+function setStrategies(
+    address[] calldata _strats,
+    uint256[] calldata _bps
+) external onlyOwner {
+    require(_strats.length == _bps.length, "len mismatch");
+    
+    delete strategies;
+    
+    uint256 total;
+    for (uint256 i = 0; i < _strats.length; i++) {
+        require(_strats[i] != address(0), "zero strat");
+        strategies.push(_strats[i]);
+        targetBps[_strats[i]] = _bps[i];
+        total += _bps[i];
+    }
+    
+    require(total == 10000, "targets must sum 10000");
+    
+    emit StrategiesUpdated();
+}
+```
+
+**Source:** `contracts/strategy/StrategyRouter.sol:45-64`
+
+<Note>
+Target allocations must sum to exactly 10000 basis points (100%).
+</Note>
+
+### Get Strategy Stats
+
+```solidity
+function getStrategyStats(address strat)
+    external view
+    returns (
+        uint256 balance,
+        uint256 target,
+        uint256 actualPct
+    )
+{
+    balance = IStrategy(strat).strategyBalance();
+    target = targetBps[strat];
+    uint256 total = _computeTotalManaged();
+    actualPct = total == 0 ? 0 : (balance * 10000) / total;
+}
+```
+
+**Source:** `contracts/strategy/StrategyRouter.sol:70-82`
+
+### Get Portfolio State
+
+```solidity
+function getPortfolioState()
+    external view
+    returns (
+        address[] memory strats,
+        uint256[] memory balances,
+        uint256[] memory targets
+    )
+{
+    strats = strategies;
+    balances = new uint256[](strats.length);
+    targets = new uint256[](strats.length);
+    
+    for (uint256 i = 0; i < strats.length; i++) {
+        balances[i] = IStrategy(strats[i]).strategyBalance();
+        targets[i] = targetBps[strats[i]];
+    }
+}
+```
+
+**Source:** `contracts/strategy/StrategyRouter.sol:84-96`
+
+## Fund Management
+
+### Move Funds to Strategy
+
+```solidity
+function moveFundsToStrategy(address strat, uint256 amount) external onlyOwner {
+    require(amount > 0, "zero amount");
+    
+    // vault → strategy
+    vault.moveToStrategy(strat, amount);
+    
+    // strategy invests (with error handling)
+    try IStrategy(strat).invest(amount) {
+        // success
+    } catch {
+        emit StrategyWithdrawFailed(strat, "invest failed");
+    }
+}
+```
+
+**Source:** `contracts/strategy/StrategyRouter.sol:105-120`
+
+### Withdraw from Strategies
+
+Called by vault when liquidity is needed:
+
+```solidity
+function withdrawFromStrategies(uint256 amount) external returns (uint256) {
+    require(msg.sender == address(vault), "not vault");
+    require(amount > 0, "zero amount");
+    
+    IERC20 asset = IERC20(vault.asset());
+    uint256 pulled = 0;
+    uint256 requested = amount;
+    
+    for (uint256 i = 0; i < strategies.length && pulled < requested; i++) {
+        address strat = strategies[i];
+        uint256 need = requested - pulled;
+        
+        uint256 before = asset.balanceOf(address(vault));
+        
+        // Call withdraw on strategy with error handling
+        try IStrategy(strat).withdrawToVault(need) {
+            // success
+        } catch (bytes memory reason) {
+            string memory msgStr = _decodeRevertReason(reason);
+            emit StrategyWithdrawFailed(strat, msgStr);
+            continue;
+        }
+        
+        uint256 afterBal = asset.balanceOf(address(vault));
+        uint256 got = 0;
+        if (afterBal > before) got = afterBal - before;
+        pulled += got;
+    }
+    
+    emit WithdrawnFromStrategies(requested, pulled);
+    require(pulled >= requested, "strategies insufficient");
+    
+    return pulled;
+}
+```
+
+**Source:** `contracts/strategy/StrategyRouter.sol:135-170`
+
+## Rebalancing
+
+Automatic portfolio rebalancing to target allocations:
+
+```solidity
+function rebalance() external onlyOwner {
+    // Calculate initial total managed assets
+    uint256 totalManaged = _computeTotalManaged();
+    
+    // Pull excess from overweight strategies
+    for (uint256 i = 0; i < strategies.length; i++) {
+        address strat = strategies[i];
+        uint256 current = IStrategy(strat).strategyBalance();
+        uint256 desired = (totalManaged * targetBps[strat]) / 10000;
+        
+        if (current > desired) {
+            uint256 excess = current - desired;
+            
+            try IStrategy(strat).withdrawToVault(excess) returns (uint256 withdrawn) {
+                if (withdrawn > 0) {
+                    vault.receiveFromStrategy(withdrawn);
+                }
+            } catch (bytes memory reason) {
+                emit StrategyWithdrawFailed(strat, _decodeRevertReason(reason));
+            }
+        }
+    }
+    
+    // Recalculate after withdrawals
+    totalManaged = _computeTotalManaged();
+    uint256 vaultBal = vault.totalAssets();
+    
+    // Push to underweight strategies
+    for (uint256 i = 0; i < strategies.length; i++) {
+        address strat = strategies[i];
+        uint256 current = IStrategy(strat).strategyBalance();
+        uint256 desired = (totalManaged * targetBps[strat]) / 10000;
+        
+        if (current < desired && vaultBal > 0) {
+            uint256 need = desired - current;
+            uint256 amt = need <= vaultBal ? need : vaultBal;
+            
+            if (amt > 0) {
+                vault.moveToStrategy(strat, amt);
+                
+                try IStrategy(strat).invest(amt) {
+                    vaultBal -= amt;
+                } catch (bytes memory reason) {
+                    emit StrategyWithdrawFailed(strat, _decodeRevertReason(reason));
+                }
+            }
+        }
+    }
+    
+    emit Rebalanced(_computeTotalManaged());
+}
+```
+
+**Source:** `contracts/strategy/StrategyRouter.sol:176-232`
+
+## Harvesting
+
+Collect profits from all strategies:
+
+```solidity
+function harvestAll() external onlyOwner {
+    address[] memory list = strategies;
+    
+    for (uint256 i = 0; i < list.length; i++) {
+        address strat = list[i];
+        
+        uint256 beforeBal = vault.totalAssets();
+        
+        // Trigger strategy harvest (tolerates failures)
+        try IStrategy(strat).harvest() {
+        } catch (bytes memory reason) {
+            emit StrategyWithdrawFailed(strat, _decodeRevertReason(reason));
+            continue;
+        }
+        
+        uint256 afterBal = vault.totalAssets();
+        
+        if (afterBal > beforeBal) {
+            uint256 profit = afterBal - beforeBal;
+            // Vault will apply the fee internally
+            vault.handleHarvestProfit(profit);
+            
+            emit Harvested(strat, profit);
+        }
+    }
+}
+```
+
+**Source:** `contracts/strategy/StrategyRouter.sol:273-298`
+
+## Deleveraging
+
+Trigger leverage unwinding for specific strategies:
+
+```solidity
+function triggerDeleverage(address strat, uint256 maxLoops) external onlyOwner {
+    require(strat != address(0), "zero strat");
+    require(maxLoops > 0, "maxLoops must be > 0");
+    
+    try IStrategy(strat).deleverageAll(maxLoops) {
+        emit DeleverageTriggered(strat, maxLoops);
+    } catch (bytes memory reason) {
+        emit StrategyWithdrawFailed(strat, _decodeRevertReason(reason));
+    }
+}
+```
+
+**Source:** `contracts/strategy/StrategyRouter.sol:246-267`
+
+## Helper Functions
+
+### Compute Total Managed
+
+```solidity
+function _computeTotalManaged() internal view returns (uint256 total) {
+    total = vault.totalAssets();
+    for (uint256 i = 0; i < strategies.length; i++) {
+        total += IStrategy(strategies[i]).strategyBalance();
+    }
+}
+```
+
+**Source:** `contracts/strategy/StrategyRouter.sol:238-243`
+
+### Decode Revert Reason
+
+```solidity
+function _decodeRevertReason(bytes memory reason) internal pure returns (string memory) {
+    if (reason.length >= 4) {
+        bytes4 selector;
+        assembly { selector := mload(add(reason, 32)) }
+        if (selector == 0x08c379a0) {
+            // decode Error(string)
+            // ... assembly code to extract string
+        }
+    }
+    return "revert";
+}
+```
+
+**Source:** `contracts/strategy/StrategyRouter.sol:302-332`
+
+## Events
+
+```solidity
+event StrategiesUpdated();
+event Rebalanced(uint256 totalManaged);
+event Harvested(address indexed strat, uint256 profit);
+event WithdrawnFromStrategies(uint256 requested, uint256 pulled);
+event DeleverageTriggered(address indexed strat, uint256 maxLoops);
+event StrategyWithdrawFailed(address indexed strat, string reason);
+```
+
+**Source:** `contracts/strategy/StrategyRouter.sol:29-34`
+
+## Vault Interface
+
+```solidity
+interface IVault {
+    function asset() external view returns (address);
+    function totalAssets() external view returns (uint256);
+    function moveToStrategy(address strategy, uint256 amount) external;
+    function receiveFromStrategy(uint256 amount) external;
+    function handleHarvestProfit(uint256 profit) external;
+}
+```
+
+**Source:** `contracts/strategy/StrategyRouter.sol:9-16`
+
+## Error Handling
+
+The router includes comprehensive error handling:
+
+- **Try-Catch Blocks**: All strategy interactions wrapped in try-catch
+- **Revert Decoding**: Extracts readable error messages from reverts
+- **Graceful Degradation**: Continues operations even if one strategy fails
+- **Event Emissions**: Logs all failures for monitoring
+
+## Security Features
+
+1. **Access Control**: Only owner can manage strategies and rebalance
+2. **Vault-Only Withdrawals**: Only vault can request fund withdrawals
+3. **Strategy Validation**: Checks for zero addresses
+4. **Allocation Validation**: Ensures targets sum to 100%
+
+## Integration Example
+
+```solidity
+// Deploy router
+StrategyRouter router = new StrategyRouter(vaultAddress, ownerAddress);
+
+// Set strategies with allocations
+address[] memory strats = new address[](2);
+strats[0] = aaveStrategyAddress;
+strats[1] = leverageStrategyAddress;
+
+uint256[] memory bps = new uint256[](2);
+bps[0] = 7000; // 70% to Aave
+bps[1] = 3000; // 30% to Leverage
+
+router.setStrategies(strats, bps);
+
+// Connect vault to router
+vault.setRouter(address(router));
+```
+
+## Next Steps
+
+- [Vault Contract Development](/contracts/vault)
+- [Strategy Development](/contracts/strategies)
+- [Contract Deployment](/contracts/deployment)

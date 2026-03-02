@@ -1,0 +1,554 @@
+---
+title: 'Strategy Contracts'
+description: 'DeFi strategy contract development guide'
+---
+
+## Overview
+
+Strategy contracts implement yield-generating protocols like Aave, Compound, or leverage strategies. All strategies must implement the `IStrategy` interface.
+
+## IStrategy Interface
+
+All strategies must implement these core functions:
+
+```solidity
+interface IStrategy {
+    function strategyBalance() external view returns (uint256);
+    function invest(uint256 amount) external;
+    function withdrawToVault(uint256 amount) external returns (uint256);
+    function harvest() external;
+    function deleverageAll(uint256 maxLoops) external;
+}
+```
+
+**Source:** `contracts/interfaces/IStrategy.sol:4-10`
+
+## Strategy Architecture
+
+### Common Pattern
+
+All strategies follow this architecture:
+
+1. **Immutable References**: Vault, router, and protocol addresses
+2. **Access Control**: `onlyRouter` modifier for protected functions
+3. **Token Approvals**: Pre-approve protocol contracts
+4. **Bookkeeping**: Track deposited amounts and protocol balances
+
+## Aave V3 Strategy
+
+Simple yield strategy using Aave V3 lending:
+
+### Contract Setup
+
+```solidity
+contract StrategyAaveV3 is IStrategy {
+    using SafeERC20 for IERC20;
+
+    IERC20 public immutable token;        // underlying (USDC)
+    address public immutable vault;
+    address public immutable router;
+    IPool public immutable pool;
+    IProtocolDataProvider public immutable dataProvider;
+
+    uint256 public deposited; // track principal
+
+    constructor(
+        address _asset,
+        address _vault,
+        address _router,
+        address _pool,
+        address _dataProvider
+    ) {
+        token = IERC20(_asset);
+        vault = _vault;
+        router = _router;
+        pool = IPool(_pool);
+        dataProvider = IProtocolDataProvider(_dataProvider);
+        token.approve(address(pool), type(uint256).max);
+    }
+}
+```
+
+**Source:** `contracts/strategy/StrategyAave.sol:15-34`
+
+### Invest Function
+
+Deposit funds into Aave:
+
+```solidity
+function invest(uint256 amount) external override onlyRouter {
+    // Vault already transferred tokens to this contract
+    pool.supply(address(token), amount, address(this), 0);
+    deposited += amount;
+}
+```
+
+**Source:** `contracts/strategy/StrategyAave.sol:54-59`
+
+### Withdraw Function
+
+Withdraw funds back to vault:
+
+```solidity
+function withdrawToVault(uint256 amount) external override onlyRouter returns(uint256) {
+    // Withdraw from Aave
+    uint256 out = pool.withdraw(address(token), amount, address(this));
+    token.safeTransfer(vault, out);
+
+    if (out <= deposited) deposited -= out;
+    else deposited = 0;
+
+    return out;
+}
+```
+
+**Source:** `contracts/strategy/StrategyAave.sol:61-70`
+
+### Harvest Function
+
+Collect interest profits:
+
+```solidity
+function harvest() external override onlyRouter {
+    // Get aToken address
+    (address aTokenAddr, , ) = dataProvider.getReserveTokensAddresses(address(token));
+    uint256 aBal = IERC20(aTokenAddr).balanceOf(address(this));
+    
+    if (aBal > deposited) {
+        uint256 profit = aBal - deposited;
+        // Withdraw profit and send to vault
+        uint256 out = pool.withdraw(address(token), profit, address(this));
+        token.safeTransfer(vault, out);
+    }
+}
+```
+
+**Source:** `contracts/strategy/StrategyAave.sol:72-86`
+
+### Strategy Balance
+
+Return current strategy value:
+
+```solidity
+function strategyBalance() public view override returns (uint256) {
+    return pool.getUnderlyingValue(address(this), address(token));
+}
+```
+
+**Source:** `contracts/strategy/StrategyAave.sol:88-90`
+
+### APY Estimation
+
+```solidity
+function estimateAPY() external view returns (uint256) {
+    (address aTokenAddr,,) = dataProvider.getReserveTokensAddresses(address(token));
+    uint256 aBal = IERC20(aTokenAddr).balanceOf(address(this));
+
+    if (deposited == 0) return 0;
+    uint256 profit = aBal > deposited ? aBal - deposited : 0;
+
+    return (profit * 1e18) / deposited; 
+}
+```
+
+**Source:** `contracts/strategy/StrategyAave.sol:41-49`
+
+## Aave Leverage Strategy
+
+Advanced strategy using leverage to amplify yields:
+
+### Contract Setup
+
+```solidity
+contract StrategyAaveLeverage is IStrategy {
+    using SafeERC20 for IERC20;
+
+    IERC20 public immutable token; // LINK (underlying)
+    address public immutable vault;
+    address public immutable router;
+    IPool public immutable pool;
+    IProtocolDataProvider public immutable dataProvider;
+    
+    // Swap infrastructure
+    ISwapRouterV2 public immutable swapRouter;
+    address public immutable WETH;
+    
+    // Oracle for price feeds
+    IPriceOracle public immutable oracle;
+
+    // Bookkeeping
+    uint256 public deposited;
+    uint256 public borrowedWETH;
+
+    // Leverage parameters
+    uint8 public maxDepth = 3;
+    uint256 public borrowFactor = 6000; // 60% of collateral
+}
+```
+
+**Source:** `contracts/strategy/StrategyAaveLeverage.sol:35-59`
+
+### Leverage Mechanism
+
+The strategy uses a loop to build leverage:
+
+1. Supply LINK as collateral
+2. Borrow WETH (60% of collateral value)
+3. Swap WETH for LINK
+4. Supply new LINK as collateral
+5. Repeat up to `maxDepth` times
+
+### Invest with Leverage
+
+```solidity
+function invest(uint256 amount) external override onlyRouter {
+    require(!paused, "paused");
+    require(amount > 0, "zero amount");
+
+    // Initial supply
+    pool.supply(address(token), amount, address(this), 0);
+    uint256 totalSupplied = amount;
+
+    uint8 depth = maxDepth;
+    uint256 totalBorrowedWETH = 0;
+
+    // Conservative leverage loop
+    for (uint8 i = 0; i < depth; i++) {
+        // 1. Check WETH liquidity
+        uint256 poolWethBal = IERC20(WETH).balanceOf(address(pool));
+        if (poolWethBal == 0) break;
+
+        // 2. Calculate safe borrow amount
+        uint256 borrowAmountWeth = min(tinyBorrow, poolWethBal / 100);
+        if (borrowAmountWeth == 0) break;
+
+        // 3. Borrow WETH
+        try pool.borrow(WETH, borrowAmountWeth, 2, 0) {
+            // success
+        } catch {
+            break;
+        }
+        totalBorrowedWETH += borrowAmountWeth;
+
+        // 4. Swap WETH -> LINK
+        address[] memory path = new address[](2);
+        path[0] = WETH;
+        path[1] = address(token);
+
+        uint256 linkBefore = token.balanceOf(address(this));
+        
+        try swapRouter.swapExactTokensForTokens(
+            borrowAmountWeth, 0, path, address(this), block.timestamp + 300
+        ) {
+            // success
+        } catch {
+            break;
+        }
+
+        uint256 linkAfter = token.balanceOf(address(this));
+        uint256 addedLink = linkAfter - linkBefore;
+
+        // 5. Supply new LINK
+        try pool.supply(address(token), addedLink, address(this), 0) {
+            totalSupplied += addedLink;
+        } catch {
+            break;
+        }
+    }
+
+    deposited += amount;
+    borrowedWETH += totalBorrowedWETH;
+
+    emit InvestedLeveraged(amount, depth, totalSupplied, totalBorrowedWETH);
+}
+```
+
+**Source:** `contracts/strategy/StrategyAaveLeverage.sol:154-272`
+
+### Deleverage
+
+Unwind leverage positions:
+
+```solidity
+function deleverageAll(uint256 maxLoops) external onlyRouter {
+    require(!paused, "paused");
+
+    for (uint256 i = 0; i < maxLoops; i++) {
+        uint256 debt = pool.getUserDebt(address(this), WETH);
+        if (debt == 0) break;
+
+        // 1. Calculate LINK needed to repay WETH debt
+        uint256 price = oracle.getPrice(WETH); // LINK per WETH
+        uint256 linkNeeded = (debt * price * 105) / (1e18 * 100); // 5% buffer
+        
+        // Get available collateral
+        uint256 availableCollateral = pool.getUnderlyingValue(address(this), address(token));
+        if (availableCollateral == 0) break;
+        
+        uint256 withdrawAmt = min(linkNeeded, availableCollateral);
+        if (withdrawAmt == 0) break;
+
+        // 2. Withdraw LINK
+        uint256 gotLINK = pool.withdraw(address(token), withdrawAmt, address(this));
+        if (gotLINK == 0) break;
+
+        // 3. Swap LINK → WETH
+        address[] memory path = new address[](2);
+        path[0] = address(token);
+        path[1] = WETH;
+
+        uint256 wethBefore = IERC20(WETH).balanceOf(address(this));
+
+        try swapRouter.swapExactTokensForTokens(
+            gotLINK, 0, path, address(this), block.timestamp + 300
+        ) {
+            // success
+        } catch {
+            break;
+        }
+
+        uint256 wethOut = IERC20(WETH).balanceOf(address(this)) - wethBefore;
+        if (wethOut == 0) break;
+
+        // 4. Repay debt
+        IERC20(WETH).approve(address(pool), wethOut);
+        uint256 repayAmount = min(wethOut, debt);
+        uint256 repaid = pool.repay(WETH, repayAmount, 2, address(this));
+
+        // Update bookkeeping
+        if (borrowedWETH <= repaid) borrowedWETH = 0;
+        else borrowedWETH -= repaid;
+
+        if (deposited <= gotLINK) deposited = 0;
+        else deposited -= gotLINK;
+    }
+}
+```
+
+**Source:** `contracts/strategy/StrategyAaveLeverage.sol:305-377`
+
+### Leverage Parameters
+
+Adjust leverage settings:
+
+```solidity
+function setLeverageParams(uint8 _maxDepth, uint256 _borrowFactor) external onlyRouter {
+    require(_maxDepth <= 6, "maxDepth too large");
+    require(_borrowFactor <= 8000, "borrowFactor too high"); // max 80%
+    maxDepth = _maxDepth;
+    borrowFactor = _borrowFactor;
+    emit LeverageParamsUpdated(_maxDepth, _borrowFactor);
+}
+```
+
+**Source:** `contracts/strategy/StrategyAaveLeverage.sol:105-111`
+
+### Leverage State
+
+```solidity
+function getLeverageState()
+    external view
+    returns (
+        uint256 deposited_,
+        uint256 borrowed_,
+        uint256 netExposure,
+        uint256 loops,
+        uint8 maxDepth_
+    )
+{
+    deposited_ = deposited;
+    borrowed_ = borrowedWETH;
+    netExposure = deposited_ > borrowed_ ? deposited_ - borrowed_ : 0;
+    loops = maxDepth;
+    maxDepth_ = maxDepth;
+}
+```
+
+**Source:** `contracts/strategy/StrategyAaveLeverage.sol:113-128`
+
+### LTV Monitoring
+
+```solidity
+function getLTV() external view returns (uint256) {
+    if (deposited == 0) return 0;
+    return (borrowedWETH * 1e18) / deposited; // 1e18 = 100%
+}
+
+function isAtRisk(uint256 maxSafeLTV) external view returns (bool) {
+    uint256 ltv = (borrowedWETH * 1e18) / deposited;
+    return ltv > maxSafeLTV;
+}
+```
+
+**Source:** `contracts/strategy/StrategyAaveLeverage.sol:130-138`
+
+### Strategy Balance with Debt
+
+```solidity
+function strategyBalance() public view override returns (uint256) {
+    uint256 collateral = pool.getUnderlyingValue(address(this), address(token));
+    uint256 idle = token.balanceOf(address(this));
+    uint256 total = collateral + idle;
+
+    if (borrowedWETH == 0) return total;
+
+    uint256 price = oracle.getPrice(WETH); // LINK per WETH
+    uint256 debtValue = borrowedWETH * price / 1e18;
+
+    if (debtValue >= total) return 0;
+    return total - debtValue;
+}
+```
+
+**Source:** `contracts/strategy/StrategyAaveLeverage.sol:381-393`
+
+## Creating New Strategies
+
+### Implementation Checklist
+
+1. **Implement IStrategy Interface**
+   - `strategyBalance()` - return current strategy value
+   - `invest()` - deploy funds into protocol
+   - `withdrawToVault()` - return funds to vault
+   - `harvest()` - collect and send profits to vault
+   - `deleverageAll()` - unwind positions (can be no-op)
+
+2. **Access Control**
+   ```solidity
+   modifier onlyRouter() {
+       require(msg.sender == router, "not router");
+       _;
+   }
+   ```
+
+3. **Token Approvals**
+   ```solidity
+   constructor(...) {
+       token.approve(address(protocol), type(uint256).max);
+   }
+   ```
+
+4. **Safe Transfers**
+   ```solidity
+   using SafeERC20 for IERC20;
+   token.safeTransfer(vault, amount);
+   ```
+
+5. **Error Handling**
+   - Use try-catch for external calls
+   - Validate amounts and addresses
+   - Emit events for failures
+
+6. **Bookkeeping**
+   - Track deposited principal
+   - Track borrowed amounts (if applicable)
+   - Calculate net value correctly
+
+## Protocol Interfaces
+
+### Aave V3 Pool
+
+```solidity
+interface IPool {
+    function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external;
+    function withdraw(address asset, uint256 amount, address to) external returns (uint256);
+    function borrow(address asset, uint256 amount, uint256 interestRateMode, uint16 referralCode) external;
+    function repay(address asset, uint256 amount, uint256 rateMode, address onBehalfOf) external returns (uint256);
+    function getUnderlyingValue(address user, address token) external view returns (uint256);
+    function getUserDebt(address user, address token) external view returns (uint256);
+}
+```
+
+**Source:** `contracts/strategy/StrategyAaveLeverage.sol:9-17`
+
+### Uniswap V2 Router
+
+```solidity
+interface ISwapRouterV2 {
+    function swapExactTokensForTokens(
+        uint amountIn,
+        uint amountOutMin,
+        address[] calldata path,
+        address to,
+        uint deadline
+    ) external returns (uint[] memory amounts);
+}
+```
+
+**Source:** `contracts/strategy/StrategyAaveLeverage.sol:20-28`
+
+### Price Oracle
+
+```solidity
+interface IPriceOracle {
+    function getPrice(address token) external view returns (uint256);
+}
+```
+
+**Source:** `contracts/strategy/StrategyAaveLeverage.sol:31-33`
+
+## OpenZeppelin Dependencies
+
+```solidity
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "../interfaces/IStrategy.sol";
+import "../interfaces/IProtocolDataProvider.sol";
+```
+
+**Source:** `contracts/strategy/StrategyAave.sol:4-6`
+
+## Security Best Practices
+
+1. **Access Control**: Always use `onlyRouter` modifier
+2. **Safe Math**: Solidity 0.8+ has built-in overflow protection
+3. **Safe Transfers**: Use OpenZeppelin's SafeERC20
+4. **Error Handling**: Wrap external calls in try-catch
+5. **Slippage Protection**: Set minimum output amounts for swaps
+6. **LTV Monitoring**: Track leverage ratios for leveraged strategies
+7. **Emergency Pause**: Include pause functionality for leverage strategies
+8. **Conservative Parameters**: Use safe borrow factors (e.g., 60% instead of 80%)
+
+## Testing Strategies
+
+```typescript
+import { expect } from "chai";
+import { ethers } from "hardhat";
+
+describe("Strategy", function () {
+  it("Should invest and withdraw", async function () {
+    // Deploy contracts
+    const strategy = await deployStrategy();
+    
+    // Test invest
+    await token.transfer(strategy.address, amount);
+    await strategy.invest(amount);
+    
+    // Check balance
+    const balance = await strategy.strategyBalance();
+    expect(balance).to.be.gte(amount);
+    
+    // Test withdraw
+    await strategy.withdrawToVault(amount);
+    const vaultBalance = await token.balanceOf(vault.address);
+    expect(vaultBalance).to.be.gte(amount);
+  });
+});
+```
+
+## Events
+
+```solidity
+event InvestedLeveraged(uint256 initial, uint8 depth, uint256 finalSupplied, uint256 borrowedWETH);
+event Deleveraged(uint256 repaidWETH, uint256 redeemedLINK);
+event Harvested(uint256 profit);
+event PauseToggled(bool paused);
+event LeverageParamsUpdated(uint8 maxDepth, uint256 borrowFactor);
+```
+
+**Source:** `contracts/strategy/StrategyAaveLeverage.sol:70-74`
+
+## Next Steps
+
+- [Vault Contract Development](/contracts/vault)
+- [Strategy Router](/contracts/strategy-router)
+- [Contract Deployment](/contracts/deployment)

@@ -1,0 +1,399 @@
+---
+title: 'Vault Contract'
+description: 'ERC4626-compliant vault contract for managing user deposits and yield strategies'
+---
+
+## Overview
+
+The `Vault` contract is the core entry point for users to deposit assets and receive yield. It implements an ERC4626-like vault with share-based accounting, performance fees, and integration with multiple yield strategies through the StrategyRouter.
+
+**Contract Address**: Deployed per-asset basis
+
+**Inherits**: `ERC20`, `Ownable`
+
+## State Variables
+
+<ResponseField name="asset" type="IERC20" required>
+  Immutable. The underlying asset token (e.g., USDC, LINK) that users deposit.
+</ResponseField>
+
+<ResponseField name="performanceFeeBps" type="uint256" required>
+  Performance fee in basis points (10000 = 100%). Applied to harvested profits.
+</ResponseField>
+
+<ResponseField name="feeRecipient" type="address" required>
+  Address that receives performance and withdrawal fees.
+</ResponseField>
+
+<ResponseField name="withdrawFeeBps" type="uint256" required>
+  Withdrawal fee in basis points (10000 = 100%). Applied when users withdraw.
+</ResponseField>
+
+<ResponseField name="router" type="address" required>
+  Address of the StrategyRouter contract that manages yield strategies.
+</ResponseField>
+
+<ResponseField name="netDeposited" type="mapping(address => uint256)" required>
+  Tracks total deposits per user for growth calculation.
+</ResponseField>
+
+<ResponseField name="totalWithdrawn" type="mapping(address => uint256)" required>
+  Tracks total withdrawals per user for growth calculation.
+</ResponseField>
+
+## Events
+
+### Deposit
+
+```solidity
+event Deposit(address indexed user, uint256 amount, uint256 shares)
+```
+
+Emitted when a user deposits assets.
+
+<ParamField path="user" type="address">
+  Address of the depositor
+</ParamField>
+
+<ParamField path="amount" type="uint256">
+  Amount of assets deposited
+</ParamField>
+
+<ParamField path="shares" type="uint256">
+  Amount of vault shares minted
+</ParamField>
+
+### Withdraw
+
+```solidity
+event Withdraw(address indexed user, uint256 amount, uint256 shares)
+```
+
+Emitted when a user withdraws assets.
+
+<ParamField path="user" type="address">
+  Address of the withdrawer
+</ParamField>
+
+<ParamField path="amount" type="uint256">
+  Amount of assets withdrawn (after fees)
+</ParamField>
+
+<ParamField path="shares" type="uint256">
+  Amount of vault shares burned
+</ParamField>
+
+## Constructor
+
+```solidity
+constructor(
+    address _asset,
+    address _feeRecipient,
+    uint256 _performanceBps,
+    uint256 _withdrawFeeBps
+) ERC20("Vault Share Token", "VST") Ownable(msg.sender)
+```
+
+<ParamField path="_asset" type="address" required>
+  Address of the underlying asset token
+</ParamField>
+
+<ParamField path="_feeRecipient" type="address" required>
+  Address to receive fees
+</ParamField>
+
+<ParamField path="_performanceBps" type="uint256" required>
+  Performance fee in basis points (e.g., 1000 = 10%)
+</ParamField>
+
+<ParamField path="_withdrawFeeBps" type="uint256" required>
+  Withdrawal fee in basis points (e.g., 50 = 0.5%)
+</ParamField>
+
+## Public Functions
+
+### deposit
+
+```solidity
+function deposit(uint256 amount) external returns (uint256)
+```
+
+Deposit assets into the vault and receive shares.
+
+<ParamField path="amount" type="uint256" required>
+  Amount of assets to deposit
+</ParamField>
+
+<ResponseField name="shares" type="uint256">
+  Amount of vault shares minted to the depositor
+</ResponseField>
+
+**Requirements**:
+- Caller must have approved the vault to transfer `amount` of asset tokens
+- `amount` must be greater than 0
+
+**Example**:
+
+```solidity
+// Approve vault to spend USDC
+usdc.approve(address(vault), 1000e6);
+
+// Deposit 1000 USDC
+uint256 shares = vault.deposit(1000e6);
+```
+
+### withdraw
+
+```solidity
+function withdraw(uint256 shares) external returns (uint256 assetsOut)
+```
+
+Burn shares and withdraw underlying assets. If vault doesn't have enough liquidity, pulls from strategies.
+
+<ParamField path="shares" type="uint256" required>
+  Amount of shares to burn
+</ParamField>
+
+<ResponseField name="assetsOut" type="uint256">
+  Amount of assets transferred to user (after withdrawal fee)
+</ResponseField>
+
+**Requirements**:
+- `shares` must be greater than 0
+- Caller must have sufficient shares
+- Router must be set if strategies need to be tapped
+
+**Example**:
+
+```solidity
+// Withdraw all shares
+uint256 shares = vault.balanceOf(msg.sender);
+uint256 assetsReceived = vault.withdraw(shares);
+```
+
+### convertToShares
+
+```solidity
+function convertToShares(uint256 assets) public view returns (uint256)
+```
+
+Convert an asset amount to shares based on current vault state.
+
+<ParamField path="assets" type="uint256" required>
+  Amount of assets
+</ParamField>
+
+<ResponseField name="shares" type="uint256">
+  Equivalent shares amount
+</ResponseField>
+
+### convertToAssets
+
+```solidity
+function convertToAssets(uint256 shares) public view returns (uint256)
+```
+
+Convert shares to asset amount based on current vault state.
+
+<ParamField path="shares" type="uint256" required>
+  Amount of shares
+</ParamField>
+
+<ResponseField name="assets" type="uint256">
+  Equivalent assets amount
+</ResponseField>
+
+### totalAssets
+
+```solidity
+function totalAssets() public view returns (uint256)
+```
+
+Returns the amount of assets held directly in the vault (not in strategies).
+
+<ResponseField name="assets" type="uint256">
+  Amount of assets in vault
+</ResponseField>
+
+### totalManagedAssets
+
+```solidity
+function totalManagedAssets() public view returns (uint256)
+```
+
+Returns total assets under management (vault + all strategies).
+
+<ResponseField name="total" type="uint256">
+  Total assets in vault and all strategies
+</ResponseField>
+
+### getNAV
+
+```solidity
+function getNAV() external view returns (uint256)
+```
+
+Get Net Asset Value - same as `totalManagedAssets()`.
+
+<ResponseField name="nav" type="uint256">
+  Total net asset value
+</ResponseField>
+
+### availableLiquidity
+
+```solidity
+function availableLiquidity() external view returns (uint256)
+```
+
+Get immediately available liquidity (vault balance only, excluding strategies).
+
+<ResponseField name="liquidity" type="uint256">
+  Available liquidity for instant withdrawals
+</ResponseField>
+
+### userGrowth
+
+```solidity
+function userGrowth(address user) public view returns (int256)
+```
+
+Calculate absolute profit/loss for a user.
+
+<ParamField path="user" type="address" required>
+  User address to check
+</ParamField>
+
+<ResponseField name="pnl" type="int256">
+  Profit (positive) or loss (negative) in asset units
+</ResponseField>
+
+**Formula**: `(currentValue + totalWithdrawn) - netDeposited`
+
+### userGrowthPercent
+
+```solidity
+function userGrowthPercent(address user) external view returns (int256)
+```
+
+Calculate percentage growth for a user.
+
+<ParamField path="user" type="address" required>
+  User address to check
+</ParamField>
+
+<ResponseField name="growthPercent" type="int256">
+  Growth percentage scaled by 1e18 (1e18 = 100%)
+</ResponseField>
+
+**Example**:
+
+```solidity
+int256 growth = vault.userGrowthPercent(msg.sender);
+if (growth > 0) {
+    // User has profit: growth / 1e18 * 100 = percentage
+    // Example: 5e17 = 50% gain
+}
+```
+
+## Owner Functions
+
+### setRouter
+
+```solidity
+function setRouter(address _router) external onlyOwner
+```
+
+Set the StrategyRouter contract address.
+
+<ParamField path="_router" type="address" required>
+  Address of the StrategyRouter contract
+</ParamField>
+
+## Router-Only Functions
+
+### moveToStrategy
+
+```solidity
+function moveToStrategy(address strategy, uint256 amount) external onlyRouter
+```
+
+Move funds from vault to a strategy. Called by StrategyRouter during rebalancing.
+
+<ParamField path="strategy" type="address" required>
+  Strategy contract address
+</ParamField>
+
+<ParamField path="amount" type="uint256" required>
+  Amount of assets to move
+</ParamField>
+
+### receiveFromStrategy
+
+```solidity
+function receiveFromStrategy(uint256 amount) external onlyRouter
+```
+
+Accounting function called when router pulls funds from strategy back to vault.
+
+<ParamField path="amount" type="uint256" required>
+  Amount received from strategy
+</ParamField>
+
+### handleHarvestProfit
+
+```solidity
+function handleHarvestProfit(uint256 profit) external onlyRouter
+```
+
+Process harvested profits and apply performance fee.
+
+<ParamField path="profit" type="uint256" required>
+  Amount of profit harvested
+</ParamField>
+
+**Behavior**:
+- Calculates fee: `fee = profit * performanceFeeBps / 10000`
+- Transfers fee to `feeRecipient`
+- Remaining profit stays in vault to increase share value
+
+## Integration Example
+
+```solidity
+// Deploy vault for USDC
+Vault vault = new Vault(
+    address(usdc),           // asset
+    feeRecipient,            // fee recipient
+    1000,                    // 10% performance fee
+    50                       // 0.5% withdrawal fee
+);
+
+// Set router
+vault.setRouter(address(strategyRouter));
+
+// User deposits
+usdc.approve(address(vault), 10000e6);
+uint256 shares = vault.deposit(10000e6);
+
+// Check user's position value
+uint256 value = vault.convertToAssets(vault.balanceOf(msg.sender));
+
+// Check user's profit
+int256 profit = vault.userGrowth(msg.sender);
+int256 profitPct = vault.userGrowthPercent(msg.sender);
+
+// Withdraw
+vault.withdraw(shares);
+```
+
+## Security Considerations
+
+1. **Router Trust**: The router has privileged access to move funds. Ensure router contract is audited.
+2. **Fee Limits**: Consider implementing maximum fee caps (e.g., performanceFeeBps {'<='} 2000 for 20% max).
+3. **Reentrancy**: Uses SafeERC20 which provides reentrancy protection.
+4. **Share Inflation**: First depositor should deposit significant amount to prevent share manipulation attacks.
+
+## See Also
+
+- [StrategyRouter](/api/contracts/strategy-router) - Manages strategy allocations
+- [StrategyAave](/api/contracts/strategy-aave) - Aave lending strategy
+- [StrategyAaveLeverage](/api/contracts/strategy-aave-leverage) - Leveraged Aave strategy

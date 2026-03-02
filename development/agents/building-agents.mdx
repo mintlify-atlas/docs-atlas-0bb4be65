@@ -1,0 +1,434 @@
+---
+title: 'Building Custom Agents'
+description: 'Create specialized AI agents for blockchain monitoring, DeFi management, and automated workflows'
+icon: 'robot'
+---
+
+## Agent Types
+
+ADK-TS provides two main agent types:
+
+### LlmAgent
+
+Direct agent with tools and instructions. Best for specialized tasks.
+
+```typescript
+import { LlmAgent } from "@iqai/adk";
+
+const agent = new LlmAgent({
+  name: "agent_name",
+  description: "Brief description of agent purpose",
+  instruction: "Detailed instructions for agent behavior",
+  model: model,
+  tools: [tool1, tool2, tool3]
+});
+```
+
+### AgentBuilder
+
+Composite agent that coordinates multiple sub-agents. Best for complex workflows.
+
+```typescript
+import { AgentBuilder } from "@iqai/adk";
+
+const agent = AgentBuilder
+  .create("agent_name")
+  .withDescription("Agent description")
+  .withInstruction("Agent instructions")
+  .withModel(model)
+  .withSubAgents([subAgent1, subAgent2])
+  .withTools(...tools)
+  .build();
+```
+
+## Strategy Sentinel Agent
+
+A comprehensive example that monitors vault strategies and manages risk.
+
+### Agent Definition
+
+```typescript src/agents/sub-agents/strategy-sentinel-agent/agent.ts
+import { LlmAgent } from "@iqai/adk";
+import { model } from "../../../env";
+import dedent from "dedent";
+import {
+  get_strategy_states,
+  get_user_balances,
+  get_vault_state,
+  rebalance_vault,
+  harvest_strategy,
+  vault_deposit,
+  vault_withdraw,
+  check_liquidation_risk,
+  auto_deleverage,
+  get_token_prices,
+  get_leverage_strategy_state,
+  get_vault_apy,
+  update_strategy_target_weights,
+  toggle_leverage_strategy_pause,
+  update_leverage_params
+} from "./tools";
+
+export async function getStrategySentinelAgent() {
+  return new LlmAgent({
+    name: "strategy_sentinel_agent",
+    description: "A agent that monitors and manages the strategies in the Vault.",
+    instruction: dedent`
+      You are the Strategy Sentinel Agent, responsible for monitoring, analyzing, 
+      and managing every strategy within the portfolio.
+      
+      Your primary objective is to maintain safety, optimal performance, 
+      healthy leverage, and capital preservation while following strict, 
+      rule-based decision logic.
+      
+      🔧 Available Tools
+      
+      📘 Read & Monitoring Tools
+        - get_strategy_states — Reads deposited, borrowed, and balance details
+        - get_vault_state — Reads total assets, supply, managed balance
+        - get_user_balances — Fetches user share and withdrawable asset data
+        - get_token_prices — Fetches real-time LINK and WETH prices from CoinGecko
+        - get_leverage_strategy_state — Gets comprehensive leverage strategy state
+      
+      🛠️ Vault & Strategy Management Tools
+        - vault_deposit — Deposits funds into the vault
+        - vault_withdraw — Withdraws or redeems shares
+        - rebalance_vault — Invokes rebalance() to reallocate funds
+        - harvest_strategy — Triggers harvest() to send profits back
+        - auto_deleverage — Executes deleveraging to reduce liquidation risk
+        - update_strategy_target_weights — Updates target allocation weights
+        - toggle_leverage_strategy_pause — Pauses or unpauses leverage strategy
+        - update_leverage_params — Updates leverage strategy parameters
+      
+      🧠 Your Responsibilities
+      
+      1. Continuously monitor strategy health by pulling on-chain data
+      2. Check LINK and WETH prices using get_token_prices before making decisions
+      3. Monitor LTV, borrowed amounts, and pause status
+      4. Detect risks early (high LTV, excessive leverage, low liquidation buffer)
+      5. Use simulation tools to validate corrective actions
+      6. Recommend actions based on data, not intuition
+      7. Never perform unsafe or unnecessary actions
+      
+      🧩 Behavioral Principles
+      
+      - Be precise, risk-aware, and rule-driven
+      - Prefer safety over yield
+      - Explain reasoning based solely on tool outputs
+      - Chain multiple tools to reach correct conclusions
+    `,
+    model: model,
+    tools: [
+      get_strategy_states,
+      get_user_balances,
+      get_vault_state,
+      rebalance_vault,
+      harvest_strategy,
+      vault_deposit,
+      vault_withdraw,
+      check_liquidation_risk,
+      auto_deleverage,
+      get_token_prices,
+      get_leverage_strategy_state,
+      get_vault_apy,
+      update_strategy_target_weights,
+      toggle_leverage_strategy_pause,
+      update_leverage_params
+    ]
+  })
+}
+```
+
+## Chat Agent for Users
+
+A user-facing agent that helps users interact with the vault.
+
+```typescript src/agents/sub-agents/chat-agent/agent.ts
+import { LlmAgent } from "@iqai/adk";
+import { model } from "../../../env";
+import dedent from "dedent";
+import {
+  get_user_vault_balance,
+  get_wallet_link_balance,
+  get_public_vault_info,
+  check_allowance,
+  approve_link,
+  user_deposit,
+  user_withdraw,
+  get_token_prices,
+  get_vault_apy,
+  convert_to_shares,
+  convert_to_assets
+} from "./tools";
+
+export const chatAgent = new LlmAgent({
+  name: "chat_agent",
+  description: "A user-friendly assistant for MetaVault users to interact with the vault.",
+  instruction: dedent`
+    You are a friendly and helpful MetaVault Assistant. 
+    Your role is to assist users with their vault interactions while maintaining 
+    strict privacy and security boundaries.
+    
+    🔒 SECURITY & PRIVACY RULES:
+    - You can ONLY access data for the user who is asking (using their wallet address)
+    - NEVER expose confidential information:
+      * Strategy internals (leverage ratios, debt positions)
+      * Admin-only functions (rebalance, harvest, update parameters)
+      * Other users' balances or private data
+    
+    🛠️ AVAILABLE TOOLS:
+    
+    USER ACCOUNT TOOLS:
+    - get_my_balance — Get user's shares & withdrawable LINK
+    - user_deposit — Prepares an unsigned DEPOSIT transaction
+    - user_withdraw — Prepares an unsigned WITHDRAW transaction
+    - convert_to_shares — Converts LINK → vault shares
+    - convert_to_assets — Converts vault shares → LINK
+    
+    PUBLIC INFORMATION TOOLS:
+    - get_public_vault_info — Total assets, supply, managed value
+    - get_token_prices — Current LINK price
+    - get_vault_apy — Current vault APY
+    
+    APPROVAL / DEPOSIT SUPPORT TOOLS:
+    - check_allowance — Check if user approved enough LINK for deposit
+    - approve_link — Prepare an unsigned APPROVAL transaction
+    
+    🧠 YOUR RESPONSIBILITIES:
+    
+    1. USER ASSISTANCE
+       - Help users deposit, withdraw, or check vault information
+       - ALWAYS ask for wallet address when accessing personal data
+       - Determine whether user needs an approval transaction before deposit
+       - Produce unsigned transactions for the wallet to sign
+    
+    2. TRANSACTION LOGIC
+       When a user asks to deposit:
+       - Step 1: Call check_allowance(wallet, amount)
+       - Step 2A: If allowance is insufficient → call approve_link(amount)
+       - Step 2B: If allowance is enough → call user_deposit(amount)
+    
+    3. COMMUNICATION STYLE
+       - Be friendly, simple, and helpful
+       - Explain what the user needs to sign (Approval or Deposit)
+       - NEVER reveal admin functions or internal vault strategy logic
+  `,
+  model: model,
+  tools: [
+    get_user_vault_balance,
+    get_wallet_link_balance,
+    get_public_vault_info,
+    check_allowance,
+    approve_link,
+    user_deposit,
+    user_withdraw,
+    get_token_prices,
+    get_vault_apy,
+    convert_to_shares,
+    convert_to_assets
+  ]
+});
+```
+
+## Telegram Agent
+
+An agent that sends notifications to Telegram channels.
+
+```typescript src/agents/telegram-agent/agent.ts
+import { AgentBuilder, type SamplingHandler } from "@iqai/adk";
+import { env, model } from "../../env";
+import { getStrategySentinelAgent } from "../sub-agents/strategy-sentinel-agent/agent";
+import { getTelegramTools } from "./tools";
+
+export const createTelegramAgent = async (samplingHandler: SamplingHandler) => {
+  const tools = await getTelegramTools(samplingHandler);
+  const strategySentinelAgent = await getStrategySentinelAgent();
+
+  return AgentBuilder.create("telegram_agent")
+    .withInstruction(`
+      Summarize the received text or data into brief important notes 
+      not exceeding the max characters for a telegram message.
+      
+      Absolutely no Markdown, HTML, or special symbols like asterisks, 
+      underscores, or backticks are allowed. 
+      Use clear line breaks, indentation, and emojis for structure.
+    `)
+    .withModel(model)
+    .withSubAgents([strategySentinelAgent])
+    .withTools(...tools)
+    .build();
+};
+```
+
+## Yield Generator Agent
+
+A simple agent that accrues interest to the pool.
+
+```typescript src/agents/sub-agents/yield-generator-agent/agent.ts
+import { LlmAgent } from "@iqai/adk";
+import { yield_generator } from "./tools";
+import { env, model } from "../../../env";
+
+export async function getYieldGeneratorAgent() {
+  return new LlmAgent({
+    name: "yield_generator_agent",
+    description: "Generating or Accruing Yield to the Pool.",
+    instruction: "Use the tool accrueInterest for accruing yield or interest to the pool for generating profits to the vault.",
+    model: model,
+    tools: [yield_generator]
+  });
+}
+```
+
+## Agent Instructions Best Practices
+
+### 1. Clear Role Definition
+
+Define the agent's role and responsibilities clearly:
+
+```typescript
+instruction: dedent`
+  You are the [Agent Name], responsible for [specific responsibilities].
+  Your primary objective is to [main goal].
+`
+```
+
+### 2. Tool Documentation
+
+Document available tools within the instruction:
+
+```typescript
+instruction: dedent`
+  🔧 Available Tools
+  
+  📘 Read Tools
+    - get_vault_state — Reads total assets, supply, managed balance
+    - get_strategy_states — Fetches strategy addresses and balances
+  
+  🛠️ Management Tools
+    - rebalance_vault — Invokes rebalance() to reallocate funds
+    - harvest_strategy — Triggers harvest() to send profits back
+`
+```
+
+### 3. Behavioral Rules
+
+Set clear behavioral guidelines:
+
+```typescript
+instruction: dedent`
+  🧩 Behavioral Principles
+  
+  - Be precise, risk-aware, and rule-driven
+  - Prefer safety over yield
+  - Explain reasoning based solely on tool outputs
+  - Never assume or invent on-chain values
+  - Chain multiple tools to reach correct conclusions
+`
+```
+
+### 4. Security Constraints
+
+Define security and privacy boundaries:
+
+```typescript
+instruction: dedent`
+  🔒 SECURITY RULES:
+  - You can ONLY access data for the user who is asking
+  - NEVER expose confidential information
+  - NEVER reveal admin functions to regular users
+`
+```
+
+## Testing Agents
+
+### Manual Testing
+
+```typescript
+const { runner } = await getStrategySentinelAgent();
+
+const result = await runner.ask(
+  "Check the current vault state and strategy allocations"
+);
+
+console.log("Agent Response:", result);
+```
+
+### Integration Testing
+
+```typescript
+import { getRootAgent } from "./agents/agent";
+
+async function testMonitoring() {
+  const { runner } = await getRootAgent();
+  
+  // Test price checking
+  const priceCheck = await runner.ask(
+    "Check real LINK and WETH prices and evaluate volatility"
+  );
+  console.log("Price Check:", priceCheck);
+  
+  // Test risk assessment
+  const riskCheck = await runner.ask(
+    "Check liquidation risk and identify if deleveraging is required"
+  );
+  console.log("Risk Check:", riskCheck);
+}
+
+testMonitoring().catch(console.error);
+```
+
+## Agent Lifecycle
+
+```typescript src/index.ts
+async function main() {
+  console.log("🤖 Initializing agents...");
+
+  try {
+    // 1. Get root agent
+    const { runner } = await getRootAgent();
+
+    // 2. Create sampling handler for cross-agent communication
+    const samplingHandler = createSamplingHandler(runner.ask);
+
+    // 3. Initialize specialized agents
+    const { runner: telegramRunner } = await createTelegramAgent(samplingHandler);
+
+    console.log("✅ Agents initialized successfully!");
+    console.log("🚀 Agents are now running and ready...");
+
+    // 4. Start monitoring service (see Automation guide)
+    const monitoringService = new MonitoringService(
+      "0 */1 * * *",
+      "*/2 * * * *",
+      telegramRunner
+    );
+    monitoringService.start();
+
+    // Keep the process running
+    await keepAlive();
+  } catch (error) {
+    console.error("❌ Failed to initialize agents:", error);
+    process.exit(1);
+  }
+}
+
+main().catch(console.error);
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Tools & Functions" icon="wrench" href="./tools-and-functions">
+    Learn how to create custom tools for your agents
+  </Card>
+  <Card title="Automation" icon="clock" href="./automation">
+    Set up automated agent execution with cron jobs
+  </Card>
+  <Card title="ADK-TS Integration" icon="code" href="./adk-ts-integration">
+    Deep dive into ADK-TS integration patterns
+  </Card>
+  <Card title="API Reference" icon="book" href="/api/agents/endpoints">
+    Explore the complete agent API documentation
+  </Card>
+</CardGroup>

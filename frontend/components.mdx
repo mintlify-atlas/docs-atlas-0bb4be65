@@ -1,0 +1,596 @@
+---
+title: 'React Components Guide'
+description: 'Comprehensive guide to MetaVault AI React components and patterns'
+---
+
+## Component Architecture
+
+All components are client-side rendered (using `"use client"` directive) due to Web3 integration requirements. Components follow a consistent pattern of hooks, conditional rendering, and event handling.
+
+## Core Components
+
+### WalletConnect Component
+
+**Location:** `src/components/WalletConnect.tsx:1`
+
+Handles wallet connection, disconnection, and network switching with multi-connector support.
+
+#### Features
+- Multi-wallet support (Injected, WalletConnect)
+- Automatic network switching to Sepolia
+- Real-time balance display
+- Modal connector selection
+- SSR-safe hydration
+
+#### Usage Example
+
+```tsx
+import { WalletConnect } from "@/components/WalletConnect";
+
+export default function Header() {
+  return (
+    <header className="p-6">
+      <WalletConnect />
+    </header>
+  );
+}
+```
+
+#### Key Implementation Details
+
+**Wagmi Hooks Used:**
+```tsx
+const { address, isConnected, connector } = useAccount()
+const { connect, connectors, isPending, error } = useConnect()
+const { disconnect } = useDisconnect()
+const chainId = useChainId()
+const { switchChain } = useSwitchChain()
+```
+
+**Auto Network Switching (`src/components/WalletConnect.tsx:31`):**
+```tsx
+useEffect(() => {
+  if (isConnected && chainId !== sepolia.id) {
+    const timer = setTimeout(() => {
+      switchChain?.({ chainId: sepolia.id })
+    }, 1000)
+    return () => clearTimeout(timer)
+  }
+}, [isConnected, chainId, switchChain])
+```
+
+**Balance Display (`src/components/WalletConnect.tsx:40`):**
+```tsx
+const { data: balance } = useReadContract({
+  address: CONTRACTS.LINK,
+  abi: ERC20_ABI,
+  functionName: 'balanceOf',
+  args: address ? [address] : undefined,
+  query: {
+    enabled: isConnected && !!address,
+    refetchInterval: 5000
+  }
+})
+```
+
+**Portal-based Modal (`src/components/WalletConnect.tsx:157`):**
+```tsx
+{showConnectors && createPortal(
+  <>
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100000]" />
+    <div className="fixed top-1/2 left-1/2 z-[100001] ...">
+      {/* Connector options */}
+    </div>
+  </>,
+  document.body
+)}
+```
+
+---
+
+### VaultDashboard Component
+
+**Location:** `src/components/VaultDashboard.tsx:1`
+
+Main dashboard displaying vault statistics, user portfolio, and strategy allocations.
+
+#### Features
+- Real-time vault metrics (TVL, APY, user assets)
+- Active strategy monitoring
+- Quick deposit/withdraw actions
+- Live event listening for updates
+- Test token minting (Sepolia)
+
+#### Contract Reads
+
+**Total Vault Assets (`src/components/VaultDashboard.tsx:59`):**
+```tsx
+const { data: totalAssets, refetch: refetchTotalAssets } = useReadContract({
+  address: CONTRACTS.VAULT,
+  abi: VAULT_ABI,
+  functionName: "totalAssets",
+  query: { enabled: isConnected && hasValidContracts, refetchInterval: 3000 },
+});
+```
+
+**Total Managed Assets:**
+```tsx
+const { data: totalManaged } = useReadContract({
+  address: CONTRACTS.VAULT,
+  abi: VAULT_ABI,
+  functionName: "totalManagedAssets",
+  query: { enabled: isConnected && hasValidContracts, refetchInterval: 3000 },
+});
+```
+
+**User Shares and Assets:**
+```tsx
+const { data: userShares } = useReadContract({
+  address: CONTRACTS.VAULT,
+  abi: VAULT_ABI,
+  functionName: "balanceOf",
+  args: address ? [address] : undefined,
+});
+
+const { data: userAssets } = useReadContract({
+  address: CONTRACTS.VAULT,
+  abi: VAULT_ABI,
+  functionName: "convertToAssets",
+  args: userShares ? [userShares] : undefined,
+});
+```
+
+**User Growth Percentage:**
+```tsx
+const { data: growthPercent } = useReadContract({
+  address: CONTRACTS.VAULT,
+  abi: VAULT_ABI,
+  functionName: "userGrowthPercent",
+  args: address ? [address] : undefined,
+});
+```
+
+**Portfolio State (`src/components/VaultDashboard.tsx:105`):**
+```tsx
+const { data: portfolioState } = useReadContract({
+  address: CONTRACTS.ROUTER,
+  abi: ROUTER_ABI,
+  functionName: "getPortfolioState",
+  query: { enabled: isConnected && hasValidContracts, refetchInterval: 3000 },
+});
+
+// Returns: [strategies[], balances[], targets[]]
+```
+
+#### Real-Time Event Listening (`src/components/VaultDashboard.tsx:123`)
+
+```tsx
+const refetchAll = () => {
+  refetchTotalAssets();
+  refetchTotalManaged();
+  refetchUserShares();
+  refetchUserAssets();
+  refetchPortfolio();
+};
+
+// Listen for Deposit events
+useWatchContractEvent({
+  address: CONTRACTS.VAULT,
+  abi: VAULT_ABI,
+  eventName: 'Deposit',
+  onLogs: () => refetchAll(),
+});
+
+// Listen for Withdraw events
+useWatchContractEvent({
+  address: CONTRACTS.VAULT,
+  abi: VAULT_ABI,
+  eventName: 'Withdraw',
+  onLogs: () => refetchAll(),
+});
+
+// Listen for Rebalanced events
+useWatchContractEvent({
+  address: CONTRACTS.ROUTER,
+  abi: ROUTER_ABI,
+  eventName: 'Rebalanced',
+  onLogs: () => refetchAll(),
+});
+```
+
+#### Test Token Minting (`src/components/VaultDashboard.tsx:167`)
+
+```tsx
+const { writeContract: writeToken, data: mintHash, isPending: isMinting } = useWriteContract();
+
+const { isLoading: isMintConfirming, isSuccess: isMintSuccess } = 
+  useWaitForTransactionReceipt({ hash: mintHash });
+
+const handleMintLink = () => {
+  const amount = parseTokenAmount("100"); // 100 LINK
+  writeToken({
+    address: CONTRACTS.LINK,
+    abi: ERC20_ABI,
+    functionName: "mint",
+    args: [address, amount],
+  });
+};
+```
+
+---
+
+### DepositModal Component
+
+**Location:** `src/components/DepositModal.tsx:1`
+
+Modal for depositing LINK tokens into the vault with automatic approval handling.
+
+#### Features
+- Balance checking and validation
+- Automatic token approval
+- Sequential approve + deposit workflow
+- Transaction state management
+
+#### Props
+
+```typescript
+interface DepositModalProps {
+  onClose: () => void;
+}
+```
+
+#### Unified Deposit Workflow (`src/components/DepositModal.tsx:82`)
+
+```tsx
+const [shouldDepositAfterApproval, setShouldDepositAfterApproval] = useState(false);
+
+const { data: allowance } = useReadContract({
+  address: CONTRACTS.LINK,
+  abi: ERC20_ABI,
+  functionName: "allowance",
+  args: address && CONTRACTS.VAULT ? [address, CONTRACTS.VAULT] : undefined,
+});
+
+const needsApproval = allowance ? amountBigInt > allowance : true;
+
+const handleUnifiedDeposit = () => {
+  if (needsApproval) {
+    setShouldDepositAfterApproval(true);
+    approveToken({
+      address: CONTRACTS.LINK,
+      abi: ERC20_ABI,
+      functionName: "approve",
+      args: [CONTRACTS.VAULT, amountBigInt],
+    });
+  } else {
+    deposit({
+      address: CONTRACTS.VAULT,
+      abi: VAULT_ABI,
+      functionName: "deposit",
+      args: [amountBigInt],
+    });
+  }
+};
+```
+
+**Auto-Deposit After Approval (`src/components/DepositModal.tsx:69`):**
+```tsx
+useEffect(() => {
+  if (isApprovalSuccess && shouldDepositAfterApproval) {
+    const amountBigInt = parseTokenAmount(amount);
+    deposit({
+      address: CONTRACTS.VAULT,
+      abi: VAULT_ABI,
+      functionName: "deposit",
+      args: [amountBigInt],
+    });
+    setShouldDepositAfterApproval(false);
+  }
+}, [isApprovalSuccess, shouldDepositAfterApproval]);
+```
+
+---
+
+### AgentChat Component
+
+**Location:** `src/components/AgentChat.tsx:1`
+
+Interactive AI assistant for vault operations with transaction signing capabilities.
+
+#### Features
+- Natural language interaction
+- Session-based conversation memory
+- Unsigned transaction handling
+- Auto-scrolling message history
+
+#### Message Interface
+
+```typescript
+interface Message {
+  role: "user" | "assistant";
+  content: string;
+  timestamp: Date;
+}
+```
+
+#### Hooks Used (`src/components/AgentChat.tsx:14`)
+
+```tsx
+const { isConnected, address } = useAccount();
+const { data: walletClient } = useWalletClient();
+const publicClient = usePublicClient();
+
+const [messages, setMessages] = useState<Message[]>([]);
+const [sessionId, setSessionId] = useState<string | null>(null);
+const [input, setInput] = useState("");
+const [isLoading, setIsLoading] = useState(false);
+```
+
+#### Message Sending (`src/components/AgentChat.tsx:71`)
+
+```tsx
+const handleSend = async () => {
+  // Add user message
+  setMessages((prev) => [...prev, userMessage]);
+  
+  // Send to backend
+  const res = await fetch("/api/agent", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message: userText,
+      sessionId,
+      wallet: address,
+    }),
+  });
+  
+  const data = await res.json();
+  
+  // Update session and display reply
+  if (data.sessionId) setSessionId(data.sessionId);
+  setMessages((prev) => [...prev, assistantMessage]);
+  
+  // Handle unsigned transactions if present
+  if (data.unsignedTx && walletClient) {
+    await handleTransaction(data.unsignedTx);
+  }
+};
+```
+
+#### Transaction Signing (`src/components/AgentChat.tsx:123`)
+
+```tsx
+if (data.unsignedTx && walletClient) {
+  // Broadcast transaction
+  const txHash = await walletClient.sendTransaction(data.unsignedTx);
+  
+  // Wait for confirmation
+  const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+  
+  if (receipt.status === "success") {
+    // Inform backend of success
+    const followUp = await fetch("/api/agent", {
+      method: "POST",
+      body: JSON.stringify({
+        message: "Transaction Confirmed",
+        sessionId,
+        wallet: address,
+      }),
+    });
+  }
+}
+```
+
+---
+
+### StrategyCard Component
+
+**Location:** `src/components/StrategyCard.tsx:1`
+
+Displays individual strategy allocation with target vs. actual comparison.
+
+#### Props
+
+```typescript
+interface StrategyCardProps {
+  strategy: string;        // Contract address
+  name?: string;           // Display name
+  balance: bigint;         // Current allocation
+  target: bigint;          // Target allocation (bps)
+  totalManaged: bigint;    // Total vault assets
+}
+```
+
+#### Deviation Calculation (`src/components/StrategyCard.tsx:16`)
+
+```tsx
+const targetBps = Number(target);
+const targetPercent = targetBps / 100; // Convert basis points to percentage
+
+const actualPercent = totalManaged > 0n
+  ? (Number(balance) * 10000) / Number(totalManaged) / 100
+  : 0;
+
+const deviation = actualPercent - targetPercent;
+```
+
+#### Visual Indicator
+
+```tsx
+<div className="w-full bg-gray-700 rounded-full h-2">
+  <div
+    className="bg-blue-500 h-2 rounded-full transition-all"
+    style={{ width: `${Math.min(actualPercent, 100)}%` }}
+  />
+</div>
+
+{Math.abs(deviation) > 5 && (
+  <p className="text-xs text-yellow-400">
+    {deviation > 0 ? "+" : ""}{deviation.toFixed(2)}% deviation from target
+  </p>
+)}
+```
+
+---
+
+### DepositorsList Component
+
+**Location:** `src/components/DepositorsList.tsx:1`
+
+Displays active vault share holders by fetching Transfer events and current balances.
+
+#### Holder Interface
+
+```typescript
+interface Holder {
+  address: string;
+  percent: string;
+  balance: bigint;
+}
+```
+
+#### Event-Based Discovery (`src/components/DepositorsList.tsx:26`)
+
+```tsx
+const publicClient = usePublicClient();
+
+const fetchHolders = async () => {
+  // 1. Get all Transfer events
+  const logs = await publicClient.getContractEvents({
+    address: CONTRACTS.VAULT,
+    abi: ERC20_ABI,
+    eventName: 'Transfer',
+    fromBlock: 'earliest',
+  });
+  
+  // 2. Extract unique recipient addresses
+  const potentialHolders = new Set<string>();
+  logs.forEach(log => {
+    if (log.args?.to && log.args.to !== "0x0000000000000000000000000000000000000000") {
+      potentialHolders.add(log.args.to);
+    }
+  });
+  
+  // 3. Fetch current balances
+  const totalSupply = await publicClient.readContract({
+    address: CONTRACTS.VAULT,
+    abi: VAULT_ABI,
+    functionName: 'totalSupply',
+  });
+  
+  const activeHolders: Holder[] = [];
+  
+  await Promise.all(
+    Array.from(potentialHolders).map(async (userAddr) => {
+      const shares = await publicClient.readContract({
+        address: CONTRACTS.VAULT,
+        abi: VAULT_ABI,
+        functionName: 'balanceOf',
+        args: [userAddr],
+      });
+      
+      if (shares > 0n) {
+        const percent = (Number(shares) * 100) / Number(totalSupply);
+        activeHolders.push({ address: userAddr, balance: shares, percent: percent.toFixed(2) });
+      }
+    })
+  );
+  
+  // 4. Sort by balance descending
+  activeHolders.sort((a, b) => Number(b.balance - a.balance));
+  setHolders(activeHolders);
+};
+```
+
+---
+
+## Common Patterns
+
+### SSR Hydration Safety
+
+Prevent hydration mismatches by mounting check:
+
+```tsx
+const [isMounted, setIsMounted] = useState(false);
+
+useEffect(() => {
+  setIsMounted(true);
+}, []);
+
+if (!isMounted) {
+  return <div className="h-10 w-40 bg-white/5 rounded-xl animate-pulse" />;
+}
+```
+
+### Contract Address Validation
+
+```tsx
+const hasValidContracts = isValidAddress(CONTRACTS.VAULT) && isValidAddress(CONTRACTS.ROUTER);
+
+if (!hasValidContracts) {
+  return <div>Contract addresses not configured</div>;
+}
+```
+
+### BigInt Formatting
+
+```tsx
+import { formatTokenAmount, parseTokenAmount } from "@/lib/utils";
+
+// Display: BigInt -> String
+const formatted = formatTokenAmount(balance, 18); // "100.5"
+
+// Input: String -> BigInt
+const amount = parseTokenAmount("100", 18); // 100000000000000000000n
+```
+
+### Transaction State Management
+
+```tsx
+const { writeContract, data: hash, isPending } = useWriteContract();
+const { isLoading, isSuccess, isError } = useWaitForTransactionReceipt({ hash });
+
+useEffect(() => {
+  if (isSuccess) {
+    refetchAllData();
+    showSuccessMessage();
+  }
+}, [isSuccess]);
+```
+
+---
+
+## Component Testing
+
+### Testing with Wagmi
+
+```tsx
+import { renderHook, waitFor } from '@testing-library/react'
+import { WagmiProvider } from 'wagmi'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { useAccount } from 'wagmi'
+
+const wrapper = ({ children }) => (
+  <WagmiProvider config={config}>
+    <QueryClientProvider client={new QueryClient()}>
+      {children}
+    </QueryClientProvider>
+  </WagmiProvider>
+)
+
+test('connects wallet', async () => {
+  const { result } = renderHook(() => useAccount(), { wrapper })
+  // Test implementation
+})
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Frontend Overview" icon="globe" href="/frontend/overview">
+    Return to architecture overview
+  </Card>
+  <Card title="Web3 Integration" icon="link" href="/frontend/web3-integration">
+    Learn Wagmi and Viem patterns
+  </Card>
+</CardGroup>

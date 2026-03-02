@@ -1,0 +1,304 @@
+---
+title: 'ADK-TS Integration Guide'
+description: 'Learn how to integrate and use the ADK TypeScript SDK to build AI agents for MetaVault'
+icon: 'code'
+---
+
+## Overview
+
+The ADK (Agent Development Kit) TypeScript SDK (`@iqai/adk`) provides the foundation for building intelligent AI agents that can interact with blockchain protocols, monitor DeFi positions, and automate complex workflows.
+
+MetaVault AI uses ADK-TS to create autonomous agents that monitor vault strategies, manage risk, and execute transactions.
+
+## Installation
+
+```bash
+pnpm add @iqai/adk @iqai/adk-cli
+```
+
+### Required Dependencies
+
+```json package.json
+{
+  "dependencies": {
+    "@iqai/adk": "^0.5.7",
+    "@iqai/adk-cli": "^0.3.30",
+    "@openrouter/ai-sdk-provider": "^1.2.8",
+    "zod": "^4.1.12",
+    "dedent": "^1.7.0"
+  }
+}
+```
+
+## Core Imports
+
+```typescript
+import { 
+  AgentBuilder,
+  LlmAgent,
+  createTool,
+  createSamplingHandler,
+  type SamplingHandler,
+  type ToolContext,
+  type EnhancedRunner
+} from "@iqai/adk";
+```
+
+## Agent Architecture
+
+ADK-TS supports hierarchical agent architectures with:
+
+- **Root Agent**: Top-level coordinator that delegates to specialized sub-agents
+- **Sub-Agents**: Specialized agents with specific tools and responsibilities
+- **Tools**: Functions that agents can call to interact with external systems
+
+### Root Agent Pattern
+
+```typescript src/agents/agent.ts
+import { AgentBuilder } from "@iqai/adk";
+import { env, model } from "../env";
+import { getStrategySentinelAgent } from "./sub-agents/strategy-sentinel-agent/agent";
+import { getYieldGeneratorAgent } from "./sub-agents/yield-generator-agent/agent";
+
+export const getRootAgent = async () => {
+    const strategySentinelAgent = await getStrategySentinelAgent();
+    const yieldSimulatorAgent = await getYieldGeneratorAgent();
+    
+    return AgentBuilder
+        .create("root_agent")
+        .withDescription("AI Agent that monitors and manages the Funds and Strategies of the Vault.")
+        .withInstruction(`
+            Use the sub-agent Strategy Sentinel Agent for getting vault, strategies, and users' stats, 
+            and perform deposit, withdraw, rebalance, harvest, auto_deleverage.
+            Use the sub-agent Yield Generator Agent for accruing or generating yield to the Pool.
+        `)
+        .withModel(model)
+        .withSubAgents([strategySentinelAgent, yieldSimulatorAgent])
+        .build();
+}
+```
+
+### Sub-Agent Pattern
+
+```typescript src/agents/sub-agents/strategy-sentinel-agent/agent.ts
+import { LlmAgent } from "@iqai/adk";
+import { model } from "../../../env";
+import dedent from "dedent";
+import {
+  get_strategy_states,
+  get_user_balances,
+  get_vault_state,
+  rebalance_vault,
+  harvest_strategy,
+  vault_deposit,
+  vault_withdraw,
+  check_liquidation_risk,
+  auto_deleverage,
+  get_token_prices,
+  get_leverage_strategy_state,
+  get_vault_apy
+} from "./tools";
+
+export async function getStrategySentinelAgent() {
+  return new LlmAgent({
+    name: "strategy_sentinel_agent",
+    description: "A agent that monitors and manages the strategies in the Vault.",
+    instruction: dedent`
+        You are the Strategy Sentinel Agent, responsible for monitoring, analyzing, 
+        and managing every strategy within the portfolio.
+        Your primary objective is to maintain safety, optimal performance, 
+        healthy leverage, and capital preservation.
+        
+        Never assume or invent on-chain values. Always use provided tools.
+    `,
+    model: model,
+    tools: [
+      get_strategy_states,
+      get_user_balances,
+      get_vault_state,
+      rebalance_vault,
+      harvest_strategy,
+      vault_deposit,
+      vault_withdraw,
+      check_liquidation_risk,
+      auto_deleverage,
+      get_token_prices,
+      get_leverage_strategy_state,
+      get_vault_apy
+    ]
+  })
+}
+```
+
+## Model Configuration
+
+Configure your LLM model using OpenRouter or other providers:
+
+```typescript src/env.ts
+import { config } from "dotenv";
+import { z } from "zod";
+import { type LanguageModelV2, createOpenRouter } from "@openrouter/ai-sdk-provider";
+
+config();
+
+export const envSchema = z.object({
+  ADK_DEBUG: z.coerce.boolean().default(false),
+  OPEN_ROUTER_KEY: z.string(),
+  LLM_MODEL: z.string().default("openai/gpt-4.1"),
+  // ... other env vars
+});
+
+export const env = envSchema.parse(process.env);
+
+export let model: LanguageModelV2;
+if (env.OPEN_ROUTER_KEY) {
+  const openrouter = createOpenRouter({
+    apiKey: env.OPEN_ROUTER_KEY
+  });
+  model = openrouter(env.LLM_MODEL);
+}
+```
+
+## Running Agents
+
+### Single Agent Execution
+
+```typescript
+const { runner } = await getRootAgent();
+
+// Ask the agent to perform a task
+const result = await runner.ask(
+  "Check the vault state and rebalance if allocations diverge from targets"
+);
+
+console.log(result);
+```
+
+### Enhanced Runner with Sampling
+
+```typescript src/index.ts
+import { createSamplingHandler } from "@iqai/adk";
+
+const { runner } = await getRootAgent();
+
+// Create sampling handler for delegating to other agents
+const samplingHandler = createSamplingHandler(runner.ask);
+
+// Initialize another agent with the sampling handler
+const { runner: telegramRunner } = await createTelegramAgent(samplingHandler);
+```
+
+## Agent Communication
+
+Agents can communicate with each other through:
+
+1. **Sub-Agent Delegation**: Root agent automatically delegates tasks to appropriate sub-agents
+2. **Sampling Handlers**: Enable cross-agent communication
+3. **Shared Context**: Pass data between agents using ToolContext
+
+```typescript
+export const createTelegramAgent = async (samplingHandler: SamplingHandler) => {
+  const tools = await getTelegramTools(samplingHandler);
+  const strategySentinelAgent = await getStrategySentinelAgent();
+
+  return AgentBuilder.create("telegram_agent")
+    .withInstruction(`Summarize received data into brief notes...`)
+    .withModel(model)
+    .withSubAgents([strategySentinelAgent])
+    .withTools(...tools)
+    .build();
+};
+```
+
+## Environment Variables
+
+Required environment variables for ADK-TS integration:
+
+```bash .env
+# ADK Configuration
+ADK_DEBUG=false
+OPEN_ROUTER_KEY=your_openrouter_api_key
+LLM_MODEL=openai/gpt-4.1
+
+# Blockchain Configuration
+RPC_URL=https://eth-sepolia.g.alchemy.com/v2/YOUR_KEY
+PRIVATE_KEY=your_private_key
+
+# Contract Addresses
+VAULT_ADDRESS=0x...
+ROUTER_ADDRESS=0x...
+STRATEGY_LEVERAGE_ADDRESS=0x...
+STRATEGY_AAVE_ADDRESS=0x...
+```
+
+## Best Practices
+
+### 1. Use Dedent for Instructions
+
+Use the `dedent` package for clean, readable multi-line instructions:
+
+```typescript
+import dedent from "dedent";
+
+const instruction = dedent`
+  You are an AI agent responsible for...
+  
+  Rules:
+  - Never expose confidential data
+  - Always verify data with tools
+  - Prefer safety over yield
+`;
+```
+
+### 2. Type Safety with Zod
+
+Validate environment variables and tool inputs with Zod schemas:
+
+```typescript
+import { z } from "zod";
+
+export const envSchema = z.object({
+  VAULT_ADDRESS: z.string().min(1),
+  RPC_URL: z.string().min(1),
+});
+```
+
+### 3. Error Handling
+
+Always handle errors gracefully in agent execution:
+
+```typescript
+try {
+  const { runner } = await getRootAgent();
+  const result = await runner.ask(prompt);
+  console.log("✅ Success:", result);
+} catch (error) {
+  console.error("❌ Agent error:", error);
+  process.exit(1);
+}
+```
+
+### 4. Debug Mode
+
+Enable debug mode to see detailed agent execution logs:
+
+```bash
+ADK_DEBUG=true pnpm dev
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Building Agents" icon="robot" href="./building-agents">
+    Learn how to create custom agents with specific capabilities
+  </Card>
+  <Card title="Tools & Functions" icon="wrench" href="./tools-and-functions">
+    Create custom tools for your agents to interact with external systems
+  </Card>
+  <Card title="Automation" icon="clock" href="./automation">
+    Set up automated agent execution with cron jobs
+  </Card>
+  <Card title="Agent API Reference" icon="book" href="/api/agents/endpoints">
+    Explore the complete ADK-TS API documentation
+  </Card>
+</CardGroup>
