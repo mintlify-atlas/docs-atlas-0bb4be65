@@ -1,0 +1,151 @@
+{
+  "projectType": "saas",
+  "projectName": "MetaVault AI",
+  "projectDescription": "An AI-powered DeFi vault that autonomously manages investment strategies using intelligent agents built with ADK-TS.",
+  "theme": "aspen",
+  "primaryColor": "#6366F1",
+  "lightColor": "#818CF8",
+  "darkColor": "#4F46E5",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "introduction",
+              "how-it-works",
+              "key-features"
+            ]
+          },
+          {
+            "group": "Getting Started",
+            "pages": [
+              "getting-started/installation",
+              "getting-started/quick-start",
+              "getting-started/configuration"
+            ]
+          },
+          {
+            "group": "User Guide",
+            "pages": [
+              "user-guide/connecting-wallet",
+              "user-guide/depositing-funds",
+              "user-guide/withdrawing-funds",
+              "user-guide/tracking-performance",
+              "user-guide/chat-agent"
+            ]
+          },
+          {
+            "group": "AI Agents",
+            "pages": [
+              "agents/overview",
+              "agents/strategy-sentinel",
+              "agents/chat-agent",
+              "agents/yield-simulator"
+            ]
+          },
+          {
+            "group": "Vault Strategies",
+            "pages": [
+              "strategies/overview",
+              "strategies/aave-v3-strategy",
+              "strategies/aave-leverage-strategy",
+              "strategies/risk-management"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/system-overview",
+              "architecture/smart-contracts",
+              "architecture/frontend",
+              "architecture/agent-system"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Development",
+        "groups": [
+          {
+            "group": "Setup",
+            "pages": [
+              "development/local-setup",
+              "development/running-locally",
+              "development/testing"
+            ]
+          },
+          {
+            "group": "Smart Contracts",
+            "pages": [
+              "contracts/vault",
+              "contracts/strategy-router",
+              "contracts/strategies",
+              "contracts/deployment"
+            ]
+          },
+          {
+            "group": "Frontend",
+            "pages": [
+              "frontend/overview",
+              "frontend/components",
+              "frontend/web3-integration"
+            ]
+          },
+          {
+            "group": "AI Agents",
+            "pages": [
+              "development/agents/adk-ts-integration",
+              "development/agents/building-agents",
+              "development/agents/tools-and-functions",
+              "development/agents/automation"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Smart Contracts",
+            "pages": [
+              "api/contracts/vault",
+              "api/contracts/strategy-router",
+              "api/contracts/strategy-aave",
+              "api/contracts/strategy-aave-leverage"
+            ]
+          },
+          {
+            "group": "Agent API",
+            "pages": [
+              "api/agents/endpoints",
+              "api/agents/chat-api",
+              "api/agents/strategy-sentinel-api"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "AI-powered autonomous vault management using ADK-TS agents",
+    "Multiple DeFi strategies (Aave V3 safe lending and leveraged looping)",
+    "Real-time risk monitoring and automatic deleveraging",
+    "Natural language chat interface for vault interactions",
+    "Automated yield harvesting and portfolio rebalancing",
+    "Web3-enabled frontend with MetaMask integration"
+  ],
+  "publicApiSurface": [
+    "Vault.deposit(uint256 amount) → uint256 shares",
+    "Vault.withdraw(uint256 shares) → uint256 assets",
+    "Vault.totalAssets() → uint256",
+    "Vault.convertToShares(uint256 assets) → uint256",
+    "Vault.convertToAssets(uint256 shares) → uint256",
+    "Strategy Sentinel Agent: get_vault_state, rebalance_vault, harvest_strategy, auto_deleverage",
+    "Chat Agent: user_deposit, user_withdraw, get_public_vault_info, get_vault_apy",
+    "POST /api/chat - Chat with vault assistant",
+    "GET /api/vault/state - Get vault statistics"
+  ]
+}
